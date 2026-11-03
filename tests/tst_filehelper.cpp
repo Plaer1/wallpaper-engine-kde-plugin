@@ -398,6 +398,7 @@ private slots:
         FileHelper  helper;
         QVariantMap got = helper.detectSteamIn({ m_tmp.filePath("no_such_steam") });
         QVERIFY(got["library"].toString().isEmpty());
+        QVERIFY(got["libraries"].toList().isEmpty());
         QVERIFY(got["projectDirs"].toStringList().isEmpty());
         QVERIFY(got["assets"].toString().isEmpty());
         QVERIFY(got["globalConfig"].toString().isEmpty());
@@ -498,10 +499,50 @@ private slots:
         QVERIFY(QFile::link(root, link));
 
         FileHelper        helper;
-        const QStringList dirs =
-            helper.detectSteamIn({ root, link }, link)["projectDirs"].toStringList();
+        const auto detected = helper.detectSteamIn({ root, link }, link);
+        QCOMPARE(detected["libraries"].toList().size(), 1);
+        const QStringList dirs = detected["projectDirs"].toStringList();
         QCOMPARE(dirs.size(), QSet<QString>(dirs.cbegin(), dirs.cend()).size());
         QCOMPARE(dirs.size(), 3);
+    }
+
+    void detectSteam_listsEmptyLibrariesAndPreservesSelection() {
+        const QString first = m_tmp.filePath("picker/first");
+        const QString empty = m_tmp.filePath("picker/empty");
+        QVERIFY(makeLibrary(first, true, true));
+        QVERIFY(QDir().mkpath(empty + "/steamapps"));
+        FileHelper helper;
+        auto got = helper.detectSteamIn({ first, empty }, empty);
+        QCOMPARE(got["libraries"].toList().size(), 2);
+        QCOMPARE(got["library"].toString(), empty);
+        QCOMPARE(got["selectedLibrary"].toString(), empty);
+        QVERIFY(got["projectDirs"].toStringList().isEmpty());
+        QVERIFY(!got["allProjectDirs"].toStringList().isEmpty());
+        QVERIFY(got["assets"].toString().startsWith(first));
+    }
+
+    void detectSteam_selectedWorkshopUsesAssetsFromOtherLibrary() {
+        const QString first = m_tmp.filePath("picked/app");
+        const QString extra = m_tmp.filePath("picked/workshop");
+        QVERIFY(makeLibrary(first, true, false));
+        QVERIFY(makeLibrary(extra, false, true));
+        FileHelper helper;
+        const auto got = helper.detectSteamIn({first, extra}, extra);
+        QCOMPARE(got["projectDirs"].toStringList().size(), 1);
+        QVERIFY(got["projectDirs"].toStringList().first().startsWith(extra));
+        QVERIFY(got["assets"].toString().startsWith(first));
+        QVERIFY(got["configFile"].toString().startsWith(first));
+    }
+
+    void detectSteam_refreshInvalidatesCache() {
+        const QString root = m_tmp.filePath("refresh/root");
+        QVERIFY(QDir().mkpath(root + "/steamapps"));
+        FileHelper helper;
+        auto before = helper.detectSteam(root, true);
+        QVERIFY(!before["projectDirs"].toStringList().contains(root + "/steamapps/workshop/content/431960"));
+        QVERIFY(makeLibrary(root, false, true));
+        QCOMPARE(helper.detectSteam(root)["projectDirs"], before["projectDirs"]);
+        QVERIFY(helper.detectSteam(root, true)["projectDirs"].toStringList().contains(root + "/steamapps/workshop/content/431960"));
     }
 
     void detectSteam_realMachine_shapeInvariants() {

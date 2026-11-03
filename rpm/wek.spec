@@ -16,6 +16,8 @@ BuildRequires: plasma-workspace-devel libplasma-devel
 BuildRequires: kf6-plasma-devel
 BuildRequires: kf6-kcoreaddons-devel
 BuildRequires: kf6-kpackage-devel
+BuildRequires: kf6-kglobalaccel-devel
+BuildRequires: kf6-kxmlgui-devel
 BuildRequires: lz4-devel
 BuildRequires: mpv-libs-devel
 BuildRequires: qt6-qtbase-private-devel

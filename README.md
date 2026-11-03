@@ -50,7 +50,8 @@ rpm-ostree install ./wallpaper-engine-kde-plugin-qt6-0-1.fc43.x86_64.rpm
 Arch:
 ```sh
 sudo pacman -S extra-cmake-modules plasma-framework gst-libav ninja \
-base-devel mpv qt6-declarative qt6-webchannel vulkan-headers cmake lz4
+base-devel mpv qt6-declarative qt6-webchannel vulkan-headers cmake lz4 \
+kglobalaccel kxmlgui
 ```
 
 Fedora:
@@ -65,7 +66,8 @@ sudo dnf swap -y ffmpeg-free ffmpeg --allowerasing
 sudo dnf install -y ffmpeg-devel --allowerasing
 
 sudo dnf install vulkan-headers plasma-workspace-devel kf6-plasma-devel \
-    kf6-kcoreaddons-devel kf6-kpackage-devel gstreamer1-libav \
+    kf6-kcoreaddons-devel kf6-kpackage-devel \
+    kf6-kglobalaccel-devel kf6-kxmlgui-devel gstreamer1-libav \
     lz4-devel mpv-libs-devel qt6-qtbase-private-devel libplasma-devel \
     qt6-qtwebchannel-devel cmake extra-cmake-modules
 ```
@@ -137,9 +139,33 @@ After installing via any method:
 2. Open the **Wallpaper Type** dropdown and select **Wallpaper Engine for KDE**
 3. Your subscribed Workshop wallpapers appear in the list — select one and click **Apply**
 
-The Steam library is detected automatically, including Flatpak and Snap installs and libraries on
-other drives. Wallpapers from every library are listed together. Use the folder button on the
-Wallpapers tab to override the detected library, for example to pick a second Steam installation.
+Steam libraries are detected automatically, including native, Flatpak and Snap installs and libraries on other drives. A single library is selected immediately. In the Wallpapers tab, open **Settings** to reveal the Steam library dropdown, account scope, **Rescan**, and **Browse…** controls. Rescan discovers newly added libraries and downloaded content; Browse remains available for custom locations. Saved selections are preserved, including temporarily disconnected drives. With multiple Wallpaper Engine accounts, browsing and Follow choices are account-specific; select the account whose saved wallpaper you want to use.
+
+Enable **Follow Wallpaper Engine’s current selection** on the Wallpapers tab and click Apply once to use Wallpaper Engine’s own UI for subsequent changes. Select an account and source explicitly; choices can be account-specific, an existing legacy session section, or a user-associated legacy mapping. A legacy mapping is offered only after you associate it with a verified account and the saved section/config still match. Account identity for Wallpaper Engine running under Proton has not been verified, so the plugin does not claim an identified-current-account choice. Following reads saved wallpaper selections; it does not recreate Wallpaper Engine’s unsaved playlist playback state or copy its wallpaper-property settings.
+
+Under Proton, Wallpaper Engine may leave its applied wallpaper map empty even after a browser selection. Install the included version 2 compatibility bridge, then reopen Wallpaper Engine’s browser and choose a downloaded wallpaper:
+
+```sh
+python3 tools/install-we-selection-bridge.py "$HOME/.local/share/Steam/steamapps/common/wallpaper_engine"
+```
+
+Adjust the install directory if Steam uses another library. This adds a small script to Wallpaper Engine’s UI (with a backup of its HTML entry point); the script records selections by Steam account in the existing browser settings. It uses Angular UI change notifications, with no timer. Rerun the same command after Steam replaces the UI during updates/verification; append `--remove` to uninstall the bridge and restore the backed-up entry point. The follower uses bridge data only when no native applied selection is available.
+
+The picker also watches Steam project directories and metadata, so downloads arriving while settings are open appear automatically, including when Steam creates the directory before writing its project file. These watches stop when the list is inactive. Follow uses filesystem notifications, a 180 ms debounce and background file parsing; account observation for tray source choices is event-driven and enabled only for a registered desktop wallpaper target. No recurring catalog polling is used.
+
+The follower uses filesystem notifications, a 180 ms debounce and background file parsing. There is no recurring polling. Atomic config replacement is handled, repeated selections do not restart playback, and incomplete writes or unavailable wallpapers leave the last working background in place. KDE random wallpaper rotation is suspended while following. Disable the option to return to your manual KDE selection.
+
+**Settings → Global sizing** overrides scene and video sizing on every screen immediately. Enable it and choose **Fill (crop)** to preserve proportions while filling the screen, or **Stretch** to fill without preserving proportions. Turn it off to restore each wallpaper’s own Display setting. This works independently of shared wallpaper mode; web wallpapers use their page layout.
+
+**Settings → Mute all wallpapers** is a persistent master switch that takes effect immediately on all screens, independently of shared wallpaper mode and per-wallpaper audio overrides. MPV disables the audio track; scene wallpapers release their audio device; Qt Multimedia detaches its output and disables the audio track. Web wallpapers suspend Web Audio contexts and pause audio-only media where supported. Chromium still requires an output-mute fallback for embedded video and unsupported web audio APIs. Unmuting restores each wallpaper’s own mute setting.
+
+### Playback and tray controls
+
+Plasma also provides a **Wallpaper Engine Controls** panel applet with a compact menu: **Pause** or **Resume**, **Configure Controls**, and **Desktop and Wallpaper Settings**. Configure Controls includes the optional global pause/resume hotkey. Resume can temporarily override ordinary primary-monitor window coverage; fullscreen and other hard pause reasons still prevent playback. The applet is a client of the in-process wallpaper runtime; it does not start a separate daemon.
+
+A shared **Settings → Playback** rule pauses all wallpaper screens when the selected condition is met on the primary monitor. The choices are primary monitor mostly covered (the default, including tiled windows), focused window, maximized window, focused or maximized window, any window, and fullscreen only. Fullscreen applications always pause every wallpaper screen. The resume delay applies after the selected primary-monitor window rule clears and is disabled for fullscreen-only mode. Resume can temporarily override ordinary window-based pauses; fullscreen and other hard pause conditions remain in force.
+
+Runtime state and wallpaper/file changes are updated from notifications and model events rather than idle polling. This includes the desktop visibility monitor and account observation used by registered wallpaper targets. Runtime reports the playback policy dispatched to the backend; it does not independently confirm that rendered frames have stopped or resumed.
 
 Enable **Span Across Screens** under Display to lay out a wallpaper over the bounding rectangle
 of all screens. Use **Same wallpaper on all screens** and the same Display mode for a continuous
@@ -161,7 +187,7 @@ as soon as either one is updated.
 1. *Wallpaper Engine* installed on Steam
 2. Subscribe to some wallpapers on the Workshop
 3. Open the Wallpapers tab — the Steam library is found automatically
-   - If nothing shows up, pick the *steamlibrary* folder with the folder button
+   - Use **Rescan** for new libraries, the dropdown to switch libraries, or **Browse…** for a custom folder
    - The *steamlibrary* is the one containing the *steamapps* folder
 
 ## Requirements
@@ -176,6 +202,11 @@ as soon as either one is updated.
   - Remove `WallpaperSource` line in `~/.config/plasma-org.kde.plasma.desktop-appletsrc` and restart KDE to fix
 - Mouse long press (to enter panel edit mode) is broken on desktop
 - Screen Locking is not supported
+- Identifying the current Wallpaper Engine account under Proton is not verified; that choice remains unavailable.
+- Next wallpaper in shared GlobalMode can currently advance only through the primary target and may report a partial result for other selected targets.
+- Qt Multimedia reload cannot yet confirm that a replacement wallpaper reached its first frame.
+- Shared playback modes were checked live in a configured Plasma 6/Wayland session. Preview exclusion, multi-output activity mapping, and mirrored/spanned edge cases still need additional host validation.
+- Settings-dialog conflict handling observes same-object QML writes; arbitrary external C++ or on-disk edits are not guaranteed to refresh an open dialog.
 
 ## Support Status
 

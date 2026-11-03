@@ -69,6 +69,10 @@ else()
     VERBATIM)
 endif()
 
+# The tray control is a separate Plasma applet package; keep the wallpaper
+# package and its identity unchanged.
+plasma_install_package(panel org.wekde.wallpaperengine.controls plasmoids)
+
 set(QMLPLUGIN_URI "com.github.catsout.wallpaperEngineKde")
 string(REPLACE "." "/" QMLPLUGIN_INSTALL_URI ${QMLPLUGIN_URI})
 

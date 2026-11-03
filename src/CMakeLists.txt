@@ -1,4 +1,6 @@
-find_package(Qt6 REQUIRED COMPONENTS Quick Qml Core DBus)
+find_package(Qt6 REQUIRED COMPONENTS Quick Qml Core DBus Concurrent Gui)
+find_package(KF6GlobalAccel REQUIRED)
+find_package(KF6XmlGui REQUIRED)
 
 add_subdirectory(backend_mpv)
 
@@ -17,9 +19,26 @@ add_library(${PROJECT_NAME}
 	PluginInfo.cpp
 	FileHelper.cpp
 	SteamPaths.cpp
+	SteamKeyValues.cpp
+	SteamAccounts.cpp
+	SteamAccountsWatcher.cpp
+	WallpaperEngineFollower.cpp
+	ProjectDirectoryWatcher.cpp
 	GamemodeMonitor.cpp
 	WallpaperSyncBus.cpp
 	GlobalConfigStore.cpp
+	WallpaperPlaybackPolicy.cpp
+	WallpaperRuntime.cpp
+	WallpaperRuntimeQmlClient.cpp
+	WallpaperRuntimeRegistration.cpp
+	WallpaperRuntimeHost.cpp
+	PlasmaConfigurationInvoker.cpp
+	DesktopSettingsInvoker.cpp
+	GlobalPlaybackShortcut.cpp
+	DesktopCoverage.cpp
+	DesktopCoverageCalculator.cpp
+	DesktopVisibilityMonitor.cpp
+	PrimaryScreenMonitor.cpp
 	qmldir
 )
 
@@ -31,6 +50,11 @@ target_link_libraries(${PROJECT_NAME}
 	wescene-renderer-qml
 	Qt::Core
 	Qt::DBus
+	Qt::Concurrent
+	Qt::Gui
+	KF6::GlobalAccel
+	KF6::XmlGui
+	Plasma::Plasma
 )
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
 set_target_properties(${PROJECT_NAME}

@@ -1,0 +1,21 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "org.wekde.wallpaperengine.controls",
+        "Name": "Wallpaper Engine Controls",
+        "Description": "View Wallpaper Engine playback status",
+        "Category": "System Information",
+        "Icon": "preferences-desktop-wallpaper",
+        "Authors": [
+            {
+                "Name": "Wallpaper Engine KDE Plugin contributors"
+            }
+        ],
+        "License": "GPLv2+",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "SystemServices",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

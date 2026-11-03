@@ -1,5 +1,7 @@
 IconSvg IconSvg.qml
 OptionItem OptionItem.qml
 OptionGroup OptionGroup.qml
+RuntimeNextController RuntimeNextController.qml
 DoubleSpinBox DoubleSpinBox.qml
 ColorButton ColorButton.qml
+SteamLibraryPicker SteamLibraryPicker.qml

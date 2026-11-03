@@ -10,6 +10,30 @@
       <label>Steam workshop path</label>
       <default></default>
     </entry>
+    <entry name="FollowWallpaperEngine" type="Bool">
+      <label>Follow the current selection in Wallpaper Engine</label>
+      <default>false</default>
+    </entry>
+    <entry name="WallpaperEngineAccount" type="String">
+      <label>Wallpaper Engine account to follow</label>
+      <default></default>
+    </entry>
+    <entry name="BrowseScope" type="String">
+      <label>Wallpaper browser account scope</label>
+      <default></default>
+    </entry>
+    <entry name="FollowSourceMode" type="String">
+      <label>Wallpaper Engine follow source mode</label>
+      <default></default>
+    </entry>
+    <entry name="FollowSourceAccountKey" type="String">
+      <label>Wallpaper Engine follow account identity</label>
+      <default></default>
+    </entry>
+    <entry name="FollowSourceKey" type="String">
+      <label>Wallpaper Engine follow source provenance</label>
+      <default></default>
+    </entry>
     <entry name="WallpaperWorkShopId" type="String">
       <label>Wallpaper workshopid</label>
       <default></default>

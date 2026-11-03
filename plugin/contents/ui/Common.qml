@@ -10,7 +10,8 @@ QtObject {
         Max,
         Focus,
         FocusOrMax,
-        FullScreen
+        FullScreen,
+        Covered
     }
     enum DisplayMode {
         Aspect,

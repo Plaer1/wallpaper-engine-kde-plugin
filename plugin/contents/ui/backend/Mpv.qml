@@ -6,6 +6,7 @@ Item{
     id: videoItem
     anchors.fill: parent
     property alias source: player.source
+    property int reloadGeneration: 0
     readonly property int displayMode: background.displayMode
     readonly property real videoRate: background.speed
     readonly property bool stats: background.mpvStats
@@ -63,7 +64,7 @@ Item{
         Connections {
             ignoreUnknownSignals: true
             onFirstFrame: {
-                background.sig_backendFirstFrame('mpv');
+                background.sig_backendFirstFrame('mpv', videoItem.reloadGeneration);
             }
         }
     }

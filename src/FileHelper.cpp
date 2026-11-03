@@ -1,5 +1,6 @@
 #include "FileHelper.hpp"
 #include "SteamPaths.hpp"
+#include "SteamAccountsWatcher.hpp"
 #include <QFile>
 #include <QDir>
 #include <QDirIterator>
@@ -42,15 +43,37 @@ QVariantMap packLibraries(const QList<steam::Library>& libraries,
         seen.insert(dir);
         projectDirs.append(dir);
     };
-    for (const steam::Library& lib : libraries) add(lib.workshopDir);
-    if (source != nullptr) {
-        add(steam::defaultProjectsDir(source->installDir));
-        add(steam::myProjectsDir(source->installDir));
+    QVariantList choices;
+    for (const steam::Library& lib : libraries) {
+        choices.append(QVariantMap {
+            { "path", lib.root },
+            { "hasInstall", ! lib.installDir.isEmpty() },
+            { "hasWorkshop", ! lib.workshopDir.isEmpty() }
+        });
+        add(lib.workshopDir);
+    }
+    for (const steam::Library& lib : libraries) {
+        add(steam::defaultProjectsDir(lib.installDir));
+        add(steam::myProjectsDir(lib.installDir));
+    }
+    const QStringList allProjectDirs = projectDirs;
+    if (chosen != nullptr) {
+        projectDirs.clear();
+        seen.clear();
+        add(chosen->workshopDir);
+        add(steam::defaultProjectsDir(chosen->installDir));
+        add(steam::myProjectsDir(chosen->installDir));
     }
 
     QVariantMap result;
-    result["library"]     = libraries.isEmpty() ? QString() : libraries.first().root;
+    result["libraries"] = choices;
+    result["library"] = chosen != nullptr ? chosen->root
+        : (libraries.isEmpty() ? QString() : libraries.first().root);
+    result["selectedLibrary"] = chosen != nullptr ? chosen->root : QString();
     result["projectDirs"] = projectDirs;
+    result["allProjectDirs"] = allProjectDirs;
+    result["configFile"] = source != nullptr
+        ? source->installDir + QStringLiteral("/config.json") : QString();
     result["assets"]      = source != nullptr ? steam::assetsDir(source->installDir) : QString();
     result["globalConfig"] =
         source != nullptr ? steam::globalConfigPath(source->installDir) : QString();
@@ -173,11 +196,12 @@ QVariantMap FileHelper::getFolderList(const QString& path, const QVariantMap& op
     return result;
 }
 
-QVariantMap FileHelper::detectSteam(const QString& configuredLibrary) {
+QVariantMap FileHelper::detectSteam(const QString& configuredLibrary, bool refresh) {
     // plasmashell builds one wallpaper item per screen and each one asks for
     // this, but the walk gives the same answer every time, so it runs once per
     // configured library per process instead of once per screen.
     static QHash<QString, QVariantMap> cache;
+    if (refresh) cache.clear();
     const auto                         cached = cache.constFind(configuredLibrary);
     if (cached != cache.constEnd()) return *cached;
 
@@ -194,7 +218,25 @@ QVariantMap FileHelper::detectSteam(const QString& configuredLibrary) {
 
 QVariantMap FileHelper::detectSteamIn(const QStringList& steamRoots,
                                       const QString&     configuredLibrary) {
-    return packLibraries(steam::detectLibrariesIn(steamRoots), configuredLibrary);
+    return packLibraries(steam::detectLibrariesIn(steamRoots, true), configuredLibrary);
+}
+
+void FileHelper::ensureSteamAccountsWatcher() {
+    if (m_steamAccountsWatcher) return;
+    m_steamAccountsWatcher = new SteamAccountsWatcher({}, this);
+    connect(m_steamAccountsWatcher, &SteamAccountsWatcher::catalogChanged, this, [this] {
+        emit steamAccountsCatalogChanged(steamAccountsCatalog());
+    });
+}
+
+QVariantMap FileHelper::steamAccountsCatalog() {
+    ensureSteamAccountsWatcher();
+    return m_steamAccountsWatcher->catalog().toJson().toVariantMap();
+}
+
+void FileHelper::rescanSteamAccounts() {
+    ensureSteamAccountsWatcher();
+    m_steamAccountsWatcher->refresh();
 }
 
 QVariantMap FileHelper::readWallpaperConfig(const QString& id) {

@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "currentSteamId64": "76561197960265729",
+  "byUser": {
+    "76561197960265729": {
+      "file": "Z:/SteamLibrary/steamapps/workshop/content/431960/123/project.json",
+      "monitor": "Monitor0",
+      "savedAtUtc": "2026-11-02T12:00:00.000Z"
+    }
+  },
+  "unassociated": {
+    "file": "Z:/SteamLibrary/steamapps/workshop/content/431960/456/project.json",
+    "monitor": "Monitor1",
+    "savedAtUtc": "2026-11-02T12:00:00.000Z"
+  }
+}

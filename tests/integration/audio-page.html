@@ -1,0 +1,17 @@
+<!doctype html><html><body><script>
+window.ctx = new AudioContext(); ctx.resume();
+// A short silent WAV verifies HTML audio without making test noise.
+const wav = new Uint8Array(844);
+const header = new DataView(wav.buffer);
+const tag = (offset, text) => [...text].forEach((c, i) => wav[offset + i] = c.charCodeAt(0));
+tag(0, 'RIFF'); header.setUint32(4, 836, true); tag(8, 'WAVE'); tag(12, 'fmt ');
+header.setUint32(16, 16, true); header.setUint16(20, 1, true); header.setUint16(22, 1, true);
+header.setUint32(24, 8000, true); header.setUint32(28, 8000, true);
+header.setUint16(32, 1, true); header.setUint16(34, 8, true);
+tag(36, 'data'); header.setUint32(40, 800, true); wav.fill(128, 44);
+window.audio = new Audio(URL.createObjectURL(new Blob([wav], {type:'audio/wav'})));
+audio.loop = true; document.body.append(audio); audio.play();
+window.framesRendered = 0;
+function tick() { framesRendered++; requestAnimationFrame(tick); }
+tick();
+</script></body></html>

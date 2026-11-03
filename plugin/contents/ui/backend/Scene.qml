@@ -7,6 +7,7 @@ Item{
     anchors.fill: parent
     property alias source: player.source
     property string assets: "assets"
+    property int reloadGeneration: 0
     property int displayMode: background.displayMode
     property string userPropsJson: background.userPropsJson
     property var volumeFade: Common.createVolumeFade(
@@ -57,7 +58,7 @@ Item{
         Connections {
             target: player
             function onFirstFrame() {
-                background.sig_backendFirstFrame('scene');
+                background.sig_backendFirstFrame('scene', sceneItem.reloadGeneration);
             }
         }
     }

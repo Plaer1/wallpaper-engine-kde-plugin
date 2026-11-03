@@ -42,10 +42,12 @@ Flickable {
                         <ol>
                         <li><i>Wallpaper Engine</i> installed on Steam</li>
                         <li>Subscribe to some wallpapers on the Workshop</li>
+                        <li>Enable <i>Follow Wallpaper Engine’s current selection</i> and Apply once to change wallpapers from Wallpaper Engine</li>
                         <li>Open the Wallpapers tab, the <i>steamlibrary</i> is found automatically
                             <ul>
                                 <li>Flatpak and Snap installs and libraries on other drives are included</li>
-                                <li>Nothing found? Pick the folder holding <i>steamapps</i> with the folder button</li>
+                                <li>One library is selected automatically; use the dropdown if there are several</li>
+                                <li>Use Rescan to discover new libraries or Browse to pick a custom folder</li>
                             </ul>
                         </li>
                         </ol>

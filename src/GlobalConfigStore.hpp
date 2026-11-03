@@ -3,9 +3,32 @@
 #include <QVariant>
 #include <QVariantMap>
 #include <QReadWriteLock>
+#include <QStringList>
 
 namespace wekde
 {
+
+enum class GlobalConfigPatchStatus {
+    Applied,
+    NoChange,
+    Busy,
+    Conflict,
+    InvalidJson,
+    IoError,
+};
+
+struct GlobalConfigPatchResult {
+    GlobalConfigPatchStatus status = GlobalConfigPatchStatus::IoError;
+    QStringList changedKeys;
+    QStringList conflictingKeys;
+    QString message;
+
+    bool succeeded() const
+    {
+        return status == GlobalConfigPatchStatus::Applied
+            || status == GlobalConfigPatchStatus::NoChange;
+    }
+};
 
 // Process-wide source of truth shared by every wallpaper instance in plasmashell.
 // Backed by ~/.config/wekde/global.json. Not a QML type; reached through GlobalConfig.
@@ -14,11 +37,14 @@ class GlobalConfigBackend : public QObject {
 
 public:
     GlobalConfigBackend();
+    explicit GlobalConfigBackend(QObject* parent);
+    explicit GlobalConfigBackend(const QString& configFilePath, QObject* parent = nullptr);
     static GlobalConfigBackend* instance();
 
     QVariant    value(const QString& key, const QVariant& def = {}) const;
     void        setValue(const QString& key, const QVariant& val);
     void        setValues(const QVariantMap& patch);
+    GlobalConfigPatchResult patchValues(const QVariantMap& patch, const QVariantMap& baseline);
     QVariantMap all() const;
     bool        enabled() const;
     void        reloadFromDisk();
@@ -30,10 +56,9 @@ signals:
 private:
     QString filePath() const;
     void    load();
-    void    persist() const;
-    // applies patch in-memory, returns keys whose value actually changed
-    QStringList apply(const QVariantMap& patch);
+    void    emitChanges(const QStringList& changedKeys);
 
+    QString m_configFilePath;
     QVariantMap            m_data;
     mutable QReadWriteLock m_lock;
 };

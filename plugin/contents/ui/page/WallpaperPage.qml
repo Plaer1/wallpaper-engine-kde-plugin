@@ -9,7 +9,6 @@ import ".."
 import "../components"
 
 import "../js/utils.mjs" as Utils
-import "../js/bbcode.mjs" as BBCode
 
 import org.kde.plasma.core 2.0 as PlasmaCore
 import org.kde.plasma.components 3.0 as PlasmaComponents
@@ -19,7 +18,150 @@ import org.kde.kirigami 2.6 as Kirigami
 import org.kde.kquickcontrolsaddons 2.0
 
 RowLayout {
+    id: page
     Layout.fillWidth: true
+
+    // On narrow config dialogs, Details becomes a second reachable view instead
+    // of disappearing with the width-constrained split inspector.
+    property int detailsBreakpoint: 1040
+    property bool detailsView: false
+    property bool settingsExpanded: false
+    readonly property real splitInspectorMinimumWidth: right_content.image_size
+        + 2 * right_content.content_margin + right_content_scrollbar.width
+    readonly property bool narrowLayout: width < Math.max(detailsBreakpoint,
+        3 * splitInspectorMinimumWidth)
+
+    // Injectable snapshots/bindings keep this page testable and leave config
+    // persistence to config.qml, which owns the Plasma cfg_ exports.
+    property var accountCatalogSnapshot: null
+    // The host may inject its model explicitly; the legacy context name stays
+    // as a compatibility fallback for existing config.qml callers.
+    property var wallpaperListModel: null
+    property var browseScope: ({mode: "allDownloaded", accountKeys: [], includeSharedProjects: true})
+    property var followSources: []
+    property var followSelection: ({mode: "legacySession", accountKey: "", sourceKey: "config:steamuser"})
+    // config.qml supplies the editor draft so this page never reads or edits
+    // the reconciled cfg_ export directly for Follow fields.
+    property var followEnabled: undefined
+    property var followAccount: undefined
+    property bool useFollowSourcePicker: false
+    property bool freshAccountSetup: false
+    // G2 remains closed until the integrator has live verified-string evidence.
+    property bool allowIdentifiedCurrent: false
+    property var _activeBrowseScope: normalizeBrowseScope(browseScope)
+    property var _activeFollowSelection: normalizeFollowSelection(followSelection)
+    property var pendingManualSelection: null
+
+    signal browseScopeSelected(var scope)
+    signal followSourceSelected(var binding)
+    signal followEnabledSelected(bool enabled)
+    signal followAccountSelected(string account)
+    signal manualWallpaperSelected(var wallpaper)
+
+    readonly property bool accountCatalogAvailable: accountCatalogSnapshot
+        && accountCatalogSnapshot.schemaVersion === 1
+    readonly property bool editorFollowEnabled: followEnabled === undefined
+        ? cfg_FollowWallpaperEngine : Boolean(followEnabled)
+    readonly property string editorFollowAccount: followAccount === undefined
+        ? cfg_WallpaperEngineAccount : String(followAccount)
+
+    function librarySummary() {
+        const path = String(steamDetect.selectedLibrary || cfg_SteamLibraryPath || "");
+        if (!path) return qsTr("No Steam library");
+        const parts = path.split(/[\\/]/).filter(part => part.length > 0);
+        return parts.length ? parts[parts.length - 1] : path;
+    }
+    function browseScopeSummary() {
+        if (_activeBrowseScope.mode !== "selectedAccounts")
+            return qsTr("All downloaded");
+        const count = _activeBrowseScope.accountKeys.length;
+        return count === 1 ? qsTr("1 account") : qsTr("%1 accounts").arg(count);
+    }
+
+    function listModelAdapter() {
+        return wallpaperListModel || wpListModel;
+    }
+
+    function normalizeBrowseScope(scope) {
+        const source = scope && typeof scope === "object" ? scope : {};
+        const sourceKeys = source.accountKeys;
+        const accountKeys = [];
+        if (sourceKeys && typeof sourceKeys !== "string"
+            && typeof sourceKeys.length === "number") {
+            for (let i = 0; i < sourceKeys.length; ++i) {
+                if (typeof sourceKeys[i] === "string") accountKeys.push(sourceKeys[i]);
+            }
+        }
+        return {
+            mode: source.mode === "selectedAccounts" ? "selectedAccounts" : "allDownloaded",
+            accountKeys,
+            includeSharedProjects: source.includeSharedProjects !== false
+        };
+    }
+    function normalizeFollowSelection(binding) {
+        const source = binding && typeof binding === "object" ? binding : {};
+        return {
+            mode: typeof source.mode === "string" ? source.mode : "",
+            accountKey: typeof source.accountKey === "string" ? source.accountKey : "",
+            sourceKey: typeof source.sourceKey === "string" ? source.sourceKey : ""
+        };
+    }
+    function acceptBrowseScope(mode, accountKeys, includeSharedProjects) {
+        const next = normalizeBrowseScope({mode, accountKeys, includeSharedProjects});
+        _activeBrowseScope = next;
+        listModelAdapter().browseScope = next;
+        browseScopeSelected(next);
+    }
+    function acceptFollowSource(binding) {
+        const next = normalizeFollowSelection(binding);
+        _activeFollowSelection = next;
+        followSourceSelected(next);
+    }
+    function selectWallpaper(model) {
+        // Keep file/path/type fields from the grid delegate; the inspector's
+        // wpitemFromQtObject projection intentionally omits the project file.
+        const selected = Object.assign({}, model);
+        if (page.editorFollowEnabled) {
+            pendingManualSelection = selected;
+            return;
+        }
+        cfg_WallpaperSource = Common.packWallpaperSource(selected);
+        cfg_WallpaperWorkShopId = selected.workshopid;
+        pendingManualSelection = null;
+    }
+    function applyPendingManualSelection() {
+        if (!page.editorFollowEnabled || !pendingManualSelection)
+            return;
+        const selected = pendingManualSelection;
+        cfg_WallpaperSource = Common.packWallpaperSource(selected);
+        cfg_WallpaperWorkShopId = selected.workshopid;
+        if (page.followEnabled === undefined)
+            cfg_FollowWallpaperEngine = false;
+        else
+            page.followEnabledSelected(false);
+        pendingManualSelection = null;
+        manualWallpaperSelected(selected);
+    }
+
+    function listEntryAt(list, index) {
+        const count = list && typeof list.length === "number" ? list.length
+            : list && typeof list.count === "number" ? list.count : 0;
+        if (index < 0 || index >= count) return null;
+        return typeof list.get === "function" ? list.get(index) : list[index];
+    }
+
+    function listCount(list) {
+        if (!list) return 0;
+        if (typeof list.length === "number") return list.length;
+        return typeof list.count === "number" ? list.count : 0;
+    }
+
+    onBrowseScopeChanged: {
+        _activeBrowseScope = normalizeBrowseScope(browseScope);
+        listModelAdapter().browseScope = _activeBrowseScope;
+    }
+    onFollowSelectionChanged: _activeFollowSelection = normalizeFollowSelection(followSelection)
+    Component.onCompleted: listModelAdapter().browseScope = _activeBrowseScope
 
     // Наследуем тему от родителя
     Kirigami.Theme.inherit: true
@@ -30,8 +172,10 @@ RowLayout {
     
     Control {
         id: left_content
+        objectName: "wallpaperBrowseView"
         Layout.fillWidth: true
         Layout.fillHeight: true
+        visible: !page.narrowLayout || !page.detailsView
         topPadding: 8
         leftPadding: 0
         rightPadding: 0
@@ -41,17 +185,125 @@ RowLayout {
             id: wpselsect
             anchors.left: parent.left
             anchors.right: parent.right
+            spacing: 4
+
+            RowLayout {
+                objectName: "wallpaperBrowserHeader"
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+
+                Label {
+                    objectName: "libraryScopeSummary"
+                    Layout.fillWidth: true
+                    text: qsTr("Library: %1 · %2").arg(page.librarySummary()).arg(page.browseScopeSummary())
+                    elide: Text.ElideMiddle
+                }
+                ToolButton {
+                    objectName: "browserSettingsButton"
+                    text: page.settingsExpanded ? qsTr("Done") : qsTr("Settings")
+                    icon.name: page.settingsExpanded ? "dialog-ok" : "settings-configure"
+                    Accessible.name: page.settingsExpanded ? qsTr("Close browser settings") : qsTr("Browser settings")
+                    onClicked: page.settingsExpanded = !page.settingsExpanded
+                }
+            }
+
+            CheckBox {
+                objectName: "followWallpaperEngineCheckBox"
+                text: "Follow Wallpaper Engine’s current selection"
+                checked: page.editorFollowEnabled
+                onToggled: {
+                    if (page.followEnabled === undefined)
+                        cfg_FollowWallpaperEngine = checked;
+                    else
+                        page.followEnabledSelected(checked);
+                    if (!checked) page.pendingManualSelection = null;
+                }
+            }
+
+            ColumnLayout {
+                objectName: "browserSettingsPanel"
+                Layout.fillWidth: true
+                visible: page.settingsExpanded
+                spacing: 4
+
+                SteamLibraryPicker {
+                    Layout.fillWidth: true
+                    libraries: steamDetect.libraries
+                    selectedPath: steamDetect.selectedLibrary || cfg_SteamLibraryPath
+                    onLibrarySelected: path => { cfg_SteamLibraryPath = path; wpListModel.refresh(); }
+                    onRescanRequested: root.rescanSteam()
+                    onBrowseRequested: wpDialog.open()
+                }
+
+                SteamAccountPicker {
+                    objectName: "browseAccountPicker"
+                    visible: page.accountCatalogAvailable
+                    catalog: page.accountCatalogSnapshot
+                    mode: page._activeBrowseScope.mode
+                    accountKeys: page._activeBrowseScope.accountKeys
+                    includeSharedProjects: page._activeBrowseScope.includeSharedProjects
+                    freshSetup: page.freshAccountSetup
+                    onBrowseScopeSelected: (mode, accountKeys, includeSharedProjects) =>
+                        page.acceptBrowseScope(mode, accountKeys, includeSharedProjects)
+                }
+
+                FollowSourcePicker {
+                    objectName: "followSourcePicker"
+                    visible: page.useFollowSourcePicker
+                    catalog: page.accountCatalogSnapshot
+                    followSources: page.followSources
+                    selection: page._activeFollowSelection
+                    allowIdentifiedCurrent: page.allowIdentifiedCurrent
+                    onFollowSourceSelected: binding => page.acceptFollowSource(binding)
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: page.editorFollowEnabled
+                    wrapMode: Text.WordWrap
+                    text: {
+                        if (followPreview.selection.source && !(root.wallpaperConfiguration
+                            && root.wallpaperConfiguration.FollowWallpaperEngine))
+                            return "Selection detected. Click Apply to start following on this desktop.";
+                        return followPreview.status || "Waiting for Wallpaper Engine…";
+                    }
+                }
+                ComboBox {
+                    Layout.fillWidth: true
+                    visible: !page.useFollowSourcePicker
+                        && page.editorFollowEnabled && followPreview.accounts.length > 1
+                    model: followPreview.accounts
+                    currentIndex: followPreview.accounts.indexOf(page.editorFollowAccount || "steamuser")
+                    displayText: currentIndex < 0 ? "Choose Wallpaper Engine account" : currentText
+                    onActivated: {
+                        if (page.followAccount === undefined)
+                            cfg_WallpaperEngineAccount = currentText;
+                        else
+                            page.followAccountSelected(currentText);
+                    }
+                }
+            }
+            Label {
+                objectName: "pendingManualWallpaperLabel"
+                visible: page.editorFollowEnabled && page.pendingManualSelection !== null
+                Layout.fillWidth: true
+                text: page.pendingManualSelection
+                    ? qsTr("Selected wallpaper: %1").arg(page.pendingManualSelection.title) : ""
+                wrapMode: Text.WordWrap
+            }
+            Button {
+                objectName: "applyManualWallpaperButton"
+                visible: page.editorFollowEnabled && page.pendingManualSelection !== null
+                Layout.fillWidth: true
+                text: page.pendingManualSelection
+                    ? qsTr("Use %1 and stop following on Apply").arg(page.pendingManualSelection.title)
+                    : qsTr("Use this wallpaper and stop following on Apply")
+                onClicked: page.applyPendingManualSelection()
+            }
 
             RowLayout {
                 id: infoRow
                 Layout.alignment: Qt.AlignHCenter
                 spacing: 5
-
-                Label {
-                    visible: cfg_WallpaperWorkShopId
-                    text: `Shopid: ${cfg_WallpaperWorkShopId}  Type: ${Common.unpackWallpaperSource(cfg_WallpaperSource).type}`
-                    //${cfg_WallpaperType}
-                }
 
                 Kirigami.ActionToolBar {
                     Layout.fillWidth: true
@@ -97,12 +349,6 @@ RowLayout {
 
                     actions: [
                         Kirigami.Action {
-                            icon.name: "folder-symbolic"
-                            text: 'Library'
-                            tooltip: cfg_SteamLibraryPath ? cfg_SteamLibraryPath : 'Select steam library dir'
-                            onTriggered: wpDialog.open()
-                        },
-                        Kirigami.Action {
                             id: action_cb_filter
                             text: 'Filter'
                             icon.name: "view-filter"
@@ -143,14 +389,23 @@ RowLayout {
                         Kirigami.Action {
                             icon.name: "view-refresh-symbolic"
                             text: 'Refresh'
-                            onTriggered: wpListModel.refresh()
+                            onTriggered: root.rescanSteam()
                         }
                     ]
+                }
+
+                Button {
+                    objectName: "showDetailsButton"
+                    visible: page.narrowLayout
+                    text: qsTr("Details")
+                    icon.name: "document-properties"
+                    onClicked: page.detailsView = true
                 }
             }
 
             Loader {
                 id: picViewLoader
+                objectName: "wallpaperGridLoader"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 
@@ -182,10 +437,10 @@ RowLayout {
                     level: 2
                     text: {
                         if(!cfg_SteamLibraryPath)
-                            return "No steam library with Wallpaper Engine found, select one with the folder button above";
+                            return "No Steam library found. Open Steam and choose Rescan, or use Browse.";
                         if(wpListModel.countNoFilter > 0)
                             return `Found ${wpListModel.countNoFilter} wallpapers, but none of them matched filters`;
-                        return `There are no wallpapers in steam library`;
+                        return `No wallpapers in this library. Install Wallpaper Engine and download wallpapers in Steam, then choose Rescan.`;
                     }
                     opacity: 0.5
                 }
@@ -244,8 +499,7 @@ RowLayout {
                             }
                         }
                         onClicked: {
-                            cfg_WallpaperSource = Common.packWallpaperSource(model);
-                            cfg_WallpaperWorkShopId = workshopid;
+                            page.selectWallpaper(model);
                             view.currentIndex = index;
                         }
                     }
@@ -294,11 +548,11 @@ RowLayout {
 
             FolderDialog {
                 id: wpDialog
-                title: "Select steamlibrary folder"
+                title: "Select the Steam library folder containing steamapps"
                 onAccepted: {
                     const path = Utils.trimCharR(Common.urlNative(wpDialog.selectedFolder), '/');
                     cfg_SteamLibraryPath = path;
-                    return wpListModel.refresh();
+                    return root.rescanSteam();
                 }
             }
         }
@@ -306,7 +560,9 @@ RowLayout {
 
     Control {
         id: right_content
-        Layout.preferredWidth: parent.width / 3
+        objectName: "wallpaperDetailsView"
+        Layout.preferredWidth: page.narrowLayout ? parent.width : parent.width / 3
+        Layout.fillWidth: page.narrowLayout
         Layout.fillHeight: true
 
         readonly property int image_size: 300
@@ -317,7 +573,7 @@ RowLayout {
             : Common.wpitem_template;
         }
 
-        visible: Layout.preferredWidth > image_size + content_margin*2 + right_content_scrollbar.width
+        visible: page.narrowLayout ? page.detailsView : true
 
         topPadding: 0
         leftPadding: 0
@@ -331,7 +587,10 @@ RowLayout {
         contentItem: Flickable {
             anchors.fill: parent
 
-            ScrollBar.vertical: ScrollBar { id: right_content_scrollbar }
+            ScrollBar.vertical: ScrollBar {
+                id: right_content_scrollbar
+                objectName: "wallpaperDetailsScrollBar"
+            }
 
             contentWidth: width - (right_content_scrollbar.visible ? right_content_scrollbar.width : 0)
             contentHeight: flick_content.implicitHeight
@@ -346,6 +605,15 @@ RowLayout {
                 anchors.leftMargin: right_content.content_margin
                 anchors.rightMargin: anchors.leftMargin
                 spacing: 8
+
+                Button {
+                    objectName: "backToWallpapersButton"
+                    visible: page.narrowLayout
+                    Layout.fillWidth: true
+                    text: qsTr("Back to wallpapers")
+                    icon.name: "go-previous"
+                    onClicked: page.detailsView = false
+                }
 
                 AnimatedImage { 
                     id: animated_image; 
@@ -461,23 +729,26 @@ RowLayout {
                 }
 
                 ListView {
+                    objectName: "wallpaperTagsAndPlaylists"
                     Layout.alignment: Qt.AlignHCenter | Qt.AlignTop
-                    implicitWidth: contentItem.childrenRect.width
-                    implicitHeight: contentItem.childrenRect.height
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 36
 
                     orientation: ListView.Horizontal
                     model: ListModel {}
                     readonly property bool _set_model: {
                         const wpmodel = right_content.wpmodel;
-                        const tags = right_content.wpmodel.tags;
-                        const playlists = right_content.wpmodel.playlists;
+                        const tags = right_content.wpmodel.tags || [];
+                        const playlists = right_content.wpmodel.playlists || [];
                         const _model = this.model;
                         _model.clear();
-                        for(const i of Array(tags.length).keys())
-                            _model.append(tags.get(i));
-                        for(const i of Array(playlists.length).keys()){
-                            var playlist = playlists.get(i);
-                            if(playlist != null) { _model.append(playlists.get(i)); }
+                        for (let i = 0; i < page.listCount(tags); ++i) {
+                            const tag = page.listEntryAt(tags, i);
+                            if (tag !== null) _model.append(tag);
+                        }
+                        for (let i = 0; i < page.listCount(playlists); ++i) {
+                            const playlist = page.listEntryAt(playlists, i);
+                            if (playlist !== null) _model.append(playlist);
                         }
                         _model.append({key: wpmodel.contentrating});
                         return true;
@@ -486,6 +757,7 @@ RowLayout {
                     spacing: 8
 
                     delegate: Control {
+                        objectName: `wallpaper-chip-${model.key || index}`
                         leftPadding: 8
                         topPadding: 4
                         rightPadding: leftPadding
@@ -497,7 +769,7 @@ RowLayout {
                         }
                         contentItem: Text {
                             color: Kirigami.Theme.textColor
-                            text: model.key
+                            text: model.text || model.key
                         }
                     }
                 }
@@ -549,6 +821,7 @@ RowLayout {
 
                 OptionGroup {
                     id: right_opts
+                    objectName: "wallpaperOptions"
                     Layout.fillWidth: true
 
                     readonly property string workshopid: right_content.wpmodel.workshopid
@@ -968,54 +1241,15 @@ RowLayout {
                     }
                 }
 
-                PlasmaComponents.TextArea {
+                WallpaperDescription {
                     id: descriptionTextArea
+                    objectName: "wallpaperDescription"
                     Layout.alignment: Qt.AlignTop
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.minimumHeight: implicitHeight
-
-                    visible: false
-                    text: ''
-                    color: Kirigami.Theme.textColor
-
-                    function loadDescription() {
-                        const path = Common.getWpModelProjectPath(right_content.wpmodel);
-                        if (path) {
-                            pyext.readfile(Common.urlNative(path)).then(value => {
-                                const project = Utils.parseJson(value);
-                                const desc = project && project.description ? project.description : '';
-                                descriptionTextArea.visible = Boolean(desc);
-                                if (descriptionTextArea.visible) {
-                                    descriptionTextArea.text = BBCode.parser.parse(desc);
-                                }
-                            }).catch(reason => console.error(`read '${path}' error\n`, reason));
-                        } else {
-                            descriptionTextArea.visible = false;
-                        }
-                    }
-
-                    Connections {
-                        target: right_content
-                        function onWpmodelChanged() {
-                            descriptionTextArea.loadDescription();
-                        }
-                    }
-                    Component.onCompleted: loadDescription()
-
-                    font.bold: false
- 
-                    wrapMode: Text.Wrap
-                    textFormat: Text.RichText
-                    horizontalAlignment: Text.AlignLeft
-                    readOnly: true
-
-                    onLinkActivated: Qt.openUrlExternally(link)
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        acceptedButtons: Qt.NoButton
-                    }
+                    projectUrl: Common.urlNative(Common.getWpModelProjectPath(right_content.wpmodel))
+                    readFile: path => pyext.readfile(path)
                 }
             }
         }

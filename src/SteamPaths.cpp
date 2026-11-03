@@ -1,4 +1,5 @@
 #include "SteamPaths.hpp"
+#include "SteamKeyValues.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -16,145 +17,11 @@ namespace
 
 const QString k_appId = QStringLiteral("431960");
 
-// ── KeyValues (.vdf/.acf) ──────────────────────────────────────────────────────
-// Steam writes libraryfolders.vdf and appmanifest_*.acf in the same text
-// format, and nothing in this repository or its dependencies can read it.
-
-struct KvNode {
-    bool                          isObject { false };
-    QString                       value;
-    QList<QPair<QString, KvNode>> children;
-
-    // Keys are compared case-insensitively and duplicates are last-wins, which
-    // is how Steam itself reads them.
-    const KvNode* child(const QString& key) const {
-        for (auto it = children.crbegin(); it != children.crend(); ++it) {
-            if (it->first.compare(key, Qt::CaseInsensitive) == 0) return &it->second;
-        }
-        return nullptr;
-    }
-};
-
-class KvLexer {
-public:
-    explicit KvLexer(const QString& text): m_text(text) {}
-
-    // Returns false at end of input. Punctuation ('{', '}') comes back as a
-    // one-character token with quoted == false.
-    bool next(QString& token, bool& quoted) {
-        skipGap();
-        if (m_pos >= m_text.size()) return false;
-
-        const QChar c = m_text.at(m_pos);
-        quoted        = false;
-
-        if (c == u'{' || c == u'}') {
-            token = QString(c);
-            ++m_pos;
-            return true;
-        }
-        if (c == u'"') {
-            ++m_pos;
-            token  = readQuoted();
-            quoted = true;
-            return true;
-        }
-        token = readBare();
-        return ! token.isEmpty();
-    }
-
-private:
-    void skipGap() {
-        while (m_pos < m_text.size()) {
-            const QChar c = m_text.at(m_pos);
-            if (c.isSpace()) {
-                ++m_pos;
-            } else if (c == u'/' && m_pos + 1 < m_text.size() && m_text.at(m_pos + 1) == u'/') {
-                while (m_pos < m_text.size() && m_text.at(m_pos) != u'\n') ++m_pos;
-            } else {
-                return;
-            }
-        }
-    }
-
-    QString readQuoted() {
-        QString out;
-        while (m_pos < m_text.size()) {
-            const QChar c = m_text.at(m_pos++);
-            if (c == u'"') break;
-            if (c != u'\\' || m_pos >= m_text.size()) {
-                out.append(c);
-                continue;
-            }
-            const QChar esc = m_text.at(m_pos++);
-            switch (esc.unicode()) {
-            case 'n': out.append(u'\n'); break;
-            case 't': out.append(u'\t'); break;
-            default: out.append(esc); break;
-            }
-        }
-        return out;
-    }
-
-    QString readBare() {
-        const int start = m_pos;
-        while (m_pos < m_text.size()) {
-            const QChar c = m_text.at(m_pos);
-            if (c.isSpace() || c == u'{' || c == u'}' || c == u'"') break;
-            ++m_pos;
-        }
-        return m_text.mid(start, m_pos - start);
-    }
-
-    const QString& m_text;
-    int            m_pos { 0 };
-};
-
-// Parses key/value pairs until '}' or end of input. Depth is bounded so a
-// malformed file cannot recurse without limit.
-bool parseBody(KvLexer& lexer, KvNode& out, int depth) {
-    if (depth > 32) return false;
-    out.isObject = true;
-
-    QString token;
-    bool    quoted = false;
-    while (lexer.next(token, quoted)) {
-        if (! quoted && token == QStringLiteral("}")) return true;
-        if (! quoted && token == QStringLiteral("{")) return false;
-
-        const QString key = token;
-        if (! lexer.next(token, quoted)) return false;
-
-        if (! quoted && token == QStringLiteral("{")) {
-            KvNode nested;
-            if (! parseBody(lexer, nested, depth + 1)) return false;
-            out.children.append({ key, nested });
-            continue;
-        }
-        if (! quoted && token == QStringLiteral("}")) return false;
-
-        // A trailing conditional such as [$WIN32] selects the platform the
-        // pair applies to; the value has already been read, so drop it.
-        KvNode leaf;
-        leaf.value = token;
-        out.children.append({ key, leaf });
-        if (! quoted && token.startsWith(u'[')) out.children.removeLast();
-    }
-    return true;
-}
+// Steam writes libraryfolders.vdf and appmanifest_*.acf in KeyValues format.
+using KvNode = steam::kv::Node;
 
 bool readKv(const QString& path, KvNode& out) {
-    QFile file(path);
-    if (! file.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-    // Steam caps these files well below this; the limit only guards against
-    // being pointed at something that is not a KeyValues file.
-    if (file.size() > 8 * 1024 * 1024) return false;
-
-    QString text = QString::fromUtf8(file.readAll());
-    if (! text.isEmpty() && text.at(0) == QChar(0xFEFF)) text.remove(0, 1);
-
-    KvLexer lexer(text);
-    return parseBody(lexer, out, 0);
+    return steam::kv::readFile(path, out);
 }
 
 void appendUnique(QStringList& list, QSet<QString>& seen, const QString& path) {
@@ -286,7 +153,7 @@ QString resolvePath(const QString& base, const QStringList& segments) {
     return current;
 }
 
-QList<Library> detectLibrariesIn(const QStringList& steamRootList) {
+QList<Library> detectLibrariesIn(const QStringList& steamRootList, bool includeEmpty) {
     QList<Library> libraries;
     QSet<QString>  seenLibrary;
 
@@ -321,7 +188,7 @@ QList<Library> detectLibrariesIn(const QStringList& steamRootList) {
                     library.installDir = candidate;
             }
 
-            if (library.workshopDir.isEmpty() && library.installDir.isEmpty()) continue;
+            if (! includeEmpty && library.workshopDir.isEmpty() && library.installDir.isEmpty()) continue;
             libraries.append(library);
         }
     }

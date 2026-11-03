@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wallpaper property bridge fixture</title>
+<script>
+window.generalHistory = [];
+window.userHistory = [];
+window.wallpaperPropertyListener = {
+    applyGeneralProperties(properties) { generalHistory.push(properties); },
+    applyUserProperties(properties) { userHistory.push(properties); }
+};
+</script>
+<body>WebChannel property bridge fixture</body>

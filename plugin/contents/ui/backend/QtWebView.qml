@@ -1,21 +1,47 @@
 import QtQuick 2.5
 import QtWebEngine 1.10
 import QtWebChannel 1.10
+import com.github.catsout.wallpaperEngineKde 1.2
 import ".."
 import "../js/utils.mjs" as Utils
+import "../js/audio-control.mjs" as AudioControl
 
 Item {
     id: webItem
     anchors.fill: parent
     property alias source: web.url
+    property int reloadGeneration: 0
     property bool hasLib: background.hasLib
     property int fps: background.fps
     property var readfile
+    readonly property bool audioDisabled: background.mute
+    onAudioDisabledChanged: {
+        if (!audioControllerReady) return;
+        updateAudioController();
+        applyAudioController();
+    }
+    property bool audioControllerReady: false
+    function applyAudioController() {
+        web.runJavaScript("window.__wekdeSetAudioDisabled && window.__wekdeSetAudioDisabled(" + audioDisabled + ");");
+    }
+    function updateAudioController() {
+        for (const oldScript of web.userScripts.find("wallpaper-audio-control"))
+            web.userScripts.remove(oldScript);
+        web.userScripts.insert([{
+            name: "wallpaper-audio-control",
+            injectionPoint: WebEngineScript.DocumentCreation,
+            worldId: WebEngineScript.MainWorld,
+            runsOnSubFrames: true,
+            sourceCode: AudioControl.script(audioDisabled)
+        }]);
+    }
+
+    FileHelper { id: fileHelper }
 
     onFpsChanged: {
         if(webobj.loaded) {
             webobj.generalProperties.fps = webItem.fps;
-            webobj.sigGeneralProperties(webobj.sigGeneralProperties);
+            webobj.sigGeneralProperties(webobj.generalProperties);
         }
     }
 
@@ -35,12 +61,12 @@ Item {
         property var userProperties 
         property var generalProperties
         onLoadedChanged: {
-            if(!webobj.generalProperties)
-                webobj.generalProperties = {fps: 24};
+            if (!loaded) return;
+            webobj.generalProperties = {fps: webItem.fps};
             webobj.sigGeneralProperties(webobj.generalProperties);
-            readfile(Common.urlNative(background.getWorkshopIDPath()) + "/project.json", function(text) { 
+            readfile(Common.urlNative(background.getWorkshopIDPath()) + "/project.json").then(function(text) {
                 const json = Utils.parseJson(text);
-                webobj.userProperties = json.general.properties;
+                webobj.userProperties = json?.general?.properties || {};
                 webobj.sigUserProperties(webobj.userProperties);
             });
         }
@@ -56,6 +82,7 @@ Item {
         anchors.fill: parent
         enabled: true
         audioMuted: background.mute
+        objectName: "wallpaperWebView"
         activeFocusOnPress: false
         webChannel: channel
 
@@ -78,13 +105,19 @@ Item {
         //    request.accepted = true;
         //}
         onLoadingChanged: (loadingInfo) => {
+            if (loadingInfo.status == WebEngineView.LoadStartedStatus)
+                webobj.loaded = false;
             if(loadingInfo.status == WebEngineView.LoadSucceededStatus) {
+                // Script updates and navigation reach Chromium asynchronously.
+                // Reapply the current policy if this document used an older
+                // DocumentCreation snapshot during a simultaneous mute change.
+                webItem.applyAudioController();
                 // check pause after load
                 if(paused) {
                     webItem.play();
                     webItem.pause();
                 }
-                background.sig_backendFirstFrame('QtWebEngine');
+                background.sig_backendFirstFrame('QtWebEngine', webItem.reloadGeneration);
             }
         }
 
@@ -100,13 +133,9 @@ Item {
         }
 
         Component.onCompleted: {
+            webItem.updateAudioController();
+            webItem.audioControllerReady = true;
             userScripts.insert([
-                {
-                    injectionPoint: WebEngineScript.DocumentCreation,
-                    worldId: WebEngineScript.MainWorld,
-                    name: "QWebChannel",
-                    sourceUrl: "qrc:///qtwebchannel/qwebchannel.js"
-                },
                 {
                     injectionPoint: WebEngineScript.DocumentCreation,
                     worldId: WebEngineScript.MainWorld,
@@ -124,7 +153,10 @@ Item {
                     worldId: WebEngineScript.MainWorld,
                     injectionPoint: WebEngineScript.Deferred,
                     name: "ObjectInjector",
-                    sourceCode: `
+                    // sourceUrl only supports local files. Read Qt's embedded
+                    // client without a distro-specific filesystem path, and
+                    // initialize the channel in the same injected script.
+                    sourceCode: String(fileHelper.readFile(":/qtwebchannel/qwebchannel.js")) + `
                         new QWebChannel(qt.webChannelTransport, function(channel) {
                             window.wpeQml = channel.objects.wpeQml;
                             const wpeQml = window.wpeQml;

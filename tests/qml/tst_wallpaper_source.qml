@@ -106,7 +106,9 @@ TestCase {
         tryCompare(list.model, "count", 2);
         const item = list.model.get(1);
         compare(item.playlists.count, 1);
-        compare(item.playlists.get(0).key, "saved");
+        const playlistKey = item.playlists.get(0).key;
+        verify(playlistKey.startsWith("playlist:legacySession:"));
+        compare(item.playlists.get(0).text, "Session / unassociated — saved");
         verify(item.favor);
         list.filterStr = Wallpaper.Common.filterModel.map((filter) =>
             filter.type === "playlist" || filter.type === "favor" ? 1 : filter.def).join('');
@@ -120,7 +122,7 @@ TestCase {
     function cleanup() {
         const filters = Wallpaper.Common.filterModel;
         for(let i = filters.count - 1; i >= 0; --i) {
-            if(filters.get(i).type === "playlist" && filters.get(i).key === "saved")
+            if(filters.get(i).type === "playlist")
                 filters.remove(i);
         }
     }

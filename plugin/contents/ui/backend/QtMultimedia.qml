@@ -6,6 +6,7 @@ Item{
     id: videoItem
     anchors.fill: parent
     property alias source: player.source
+    property int reloadGeneration: 0 // accepted for loader compatibility; no first-frame signal exists here
     property int displayMode: background.displayMode
     property var volumeFade: Common.createVolumeFade(
         videoItem, 
@@ -51,7 +52,16 @@ Item{
         loops: MediaPlayer.Infinite
         playbackRate: background.speed
         videoOutput: videoView
-        audioOutput: audioOut
+        objectName: "wallpaperMediaPlayer"
+        audioOutput: background.mute ? null : audioOut
+        activeAudioTrack: background.mute ? -1 : 0
+        onTracksChanged: activeAudioTrack = background.mute ? -1 : 0
+    }
+    Connections {
+        target: background
+        function onMuteChanged() {
+            player.activeAudioTrack = background.mute ? -1 : 0;
+        }
     }
     Component.onCompleted:{
         background.nowBackend = "QtMultimedia";

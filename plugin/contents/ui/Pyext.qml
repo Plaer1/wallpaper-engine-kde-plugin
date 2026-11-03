@@ -5,6 +5,12 @@ import com.github.catsout.wallpaperEngineKde 1.2
 Item {
     id: root
 
+    // The catalog remains lazy: constructing Pyext does not ask FileHelper to
+    // create its SteamAccountsWatcher. The override keeps relay behavior
+    // testable without reading the user's Steam tree.
+    property var catalogApi: fileHelper
+    signal steamAccountsCatalogChanged(var catalog)
+
     // Always ready (no Python startup delay)
     readonly property bool ok: true
     readonly property string log: ""
@@ -15,20 +21,11 @@ Item {
         id: fileHelper
     }
 
-    // Promise-like wrapper for synchronous calls
+    // Native promises keep chaining/assimilation inside Qt's engine. Custom
+    // thenables captured this QML object's context and could run after the
+    // settings page had been destroyed.
     function _makePromise(value) {
-        return {
-            result: value,
-            then: function(callback) {
-                const res = callback(value);
-                // Return chainable promise
-                return _makePromise(res !== undefined ? res : value);
-            },
-            catch: function(callback) {
-                // No-op for synchronous calls (errors would throw immediately)
-                return _makePromise(value);
-            }
-        };
+        return Promise.resolve(value);
     }
 
     function readfile(path) {
@@ -65,7 +62,23 @@ Item {
     }
 
     // No promise here, the callers bind the map straight into properties
-    function detect_steam(configuredLibrary) {
-        return fileHelper.detectSteam(configuredLibrary || '');
+    function detect_steam(configuredLibrary, refresh) {
+        return fileHelper.detectSteam(configuredLibrary || '', Boolean(refresh));
+    }
+
+    function steam_accounts_catalog() {
+        return catalogApi.steamAccountsCatalog();
+    }
+
+    function rescan_steam_accounts() {
+        catalogApi.rescanSteamAccounts();
+    }
+
+    Connections {
+        target: root.catalogApi
+        ignoreUnknownSignals: true
+        function onSteamAccountsCatalogChanged(catalog) {
+            root.steamAccountsCatalogChanged(catalog);
+        }
     }
 }

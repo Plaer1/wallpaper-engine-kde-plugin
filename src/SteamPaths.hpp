@@ -34,8 +34,9 @@ QStringList libraryRoots(const QString& steamRoot);
 QList<Library> detectLibraries();
 
 // detectLibraries() restricted to the given Steam roots. Lets tests run
-// against a temporary directory instead of a real Steam installation.
-QList<Library> detectLibrariesIn(const QStringList& steamRoots);
+// against a temporary directory instead of a real Steam installation. Set
+// includeEmpty to enumerate every existing Steam library for a picker.
+QList<Library> detectLibrariesIn(const QStringList& steamRoots, bool includeEmpty = false);
 
 // The canonical form of a path, with symlinks resolved. Falls back to a
 // cleaned path when it does not exist. Detected paths are always canonical, so

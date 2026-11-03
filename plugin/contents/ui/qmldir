@@ -1,5 +1,6 @@
 singleton Common Common.qml
 singleton Theme Theme.qml
+singleton WindowPausePolicy 1.0 WindowPausePolicy.qml
 
 WindowModel WindowModel.qml
 PowerSource PowerSource.qml

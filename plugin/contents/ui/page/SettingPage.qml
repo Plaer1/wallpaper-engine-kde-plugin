@@ -33,12 +33,14 @@ Flickable {
     property alias cfg_Speed: spin_speed.dValue
     property alias cfg_MuteAudio: ckbox_muteAudio.checked
     property alias cfg_MouseInput: ckbox_mouseInput.checked
-    property alias cfg_ResumeTime: resumeSpin.value
     property alias cfg_SwitchTimer: randomSpin.value
     property alias cfg_RandomizeWallpaper: ckbox_randomizeWallpaper.checked
     property alias cfg_NoRandomWhilePaused: ckbox_noRandomWhilePaused.checked
     property alias cfg_GlobalMode: ckbox_globalMode.checked
-    property alias cfg_PauseFilterByScreen: ckbox_pauseFilterByScreen.checked
+    property int draftWindowPauseMode: 6
+    property int draftWindowResumeDelay: 300
+    signal windowPauseModeSelected(int mode)
+    signal windowResumeDelaySelected(int milliseconds)
 
     property alias cfg_PauseOnBatPower: chkbox_pauseOnBatPower.checked
     property alias cfg_PauseBatPercent: spin_pauseBatPercent.value
@@ -61,68 +63,84 @@ Flickable {
 
         OptionGroup {
             Layout.fillWidth: true
-            header.text: 'Common Option'
+            header.text: "Playback"
             header.text_color: Kirigami.Theme.textColor
             header.icon: '../../images/cheveron-down.svg'
             header.color: Kirigami.Theme.activeBackgroundColor
 
             OptionItem {
-                text: 'Pause'
+                text: 'Pause all wallpaper screens when'
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/pause.svg'
-                actor:  ComboBox {
-                    id: pauseMode
+                actor: ComboBox {
+                    objectName: "windowPauseModeCombo"
                     model: [
                         {
-                            text: "Focus or Maximized Window",
-                            value: Common.PauseMode.FocusOrMax
+                            text: "Primary monitor is mostly covered",
+                            value: 6
                         },
                         {
-                            text: "Focus Window",
-                            value: Common.PauseMode.Focus
+                            text: "Focused window",
+                            value: 3
                         },
                         {
-                            text: "Maximized Window",
-                            value: Common.PauseMode.Max
+                            text: "Maximized window",
+                            value: 2
                         },
                         {
-                            text: "FullScreen",
-                            value: Common.PauseMode.FullScreen
+                            text: "Focused or maximized window",
+                            value: 4
                         },
                         {
-                            text: "Any Window",
-                            value: Common.PauseMode.Any
+                            text: "Any window",
+                            value: 1
                         },
                         {
-                            text: "Never",
-                            value: Common.PauseMode.Never
+                            text: "Fullscreen only",
+                            value: 0
                         }
                     ]
                     textRole: "text"
-                    onActivated: cfg_PauseMode = Common.cbCurrentValue(this)
-                    Component.onCompleted: currentIndex = Common.cbIndexOfValue(this, cfg_PauseMode)
+                    currentIndex: model.findIndex(item => item.value === settingTab.draftWindowPauseMode)
+                    onActivated: index => settingTab.windowPauseModeSelected(model[index].value)
                 }
                 contentBottom: ColumnLayout {
                     Text {
+                        objectName: "pausePolicyDescription"
                         Layout.fillWidth: true
                         color: Kirigami.Theme.disabledTextColor
-                        text: "Automatically pauses playback if any/focus/maximized window detected"
+                        text: "The selected window rule is checked on the primary monitor and pauses all wallpaper screens. Fullscreen apps always pause every screen."
                         wrapMode: Text.Wrap
                     }
                }
             }
             OptionItem {
-                text: 'Only react to windows on this screen'
+                text: 'Resume delay'
                 text_color: Kirigami.Theme.textColor
-                actor: Switch {
-                    id: ckbox_pauseFilterByScreen
+                icon: '../../images/timer.svg'
+                actor: RowLayout {
+                    SpinBox {
+                        objectName: "windowResumeDelaySpin"
+                        from: 1
+                        to: 60 * 1000
+                        stepSize: 50
+                        value: settingTab.draftWindowResumeDelay
+                        enabled: settingTab.draftWindowPauseMode !== 0
+                        Accessible.name: qsTr("Wait before resuming wallpaper playback, in milliseconds")
+                        onValueModified: settingTab.windowResumeDelaySelected(value)
+                    }
+                    Label {
+                        text: "ms"
+                        color: Kirigami.Theme.textColor
+                    }
                 }
                 contentBottom: ColumnLayout {
                     Text {
+                        objectName: "windowResumeDelayDescription"
                         Layout.fillWidth: true
                         color: Kirigami.Theme.disabledTextColor
+                        text: "Wait before resuming after the primary-monitor window rule clears."
                         wrapMode: Text.Wrap
-                        text: "When pausing on focus/maximized windows, ignore windows on other screens"
                     }
                 }
             }
@@ -153,72 +171,6 @@ Flickable {
                 text_color: Kirigami.Theme.textColor
                 actor: Switch {
                     id: chkbox_pauseOnGameMode
-                }
-            }
-            OptionItem {
-                text: 'Display'
-                text_color: Kirigami.Theme.textColor
-                icon: '../../images/window.svg'
-                actor: ComboBox {
-                    id: displayMode
-                    model: [
-                        {
-                            text: "Keep Aspect Ratio",
-                            value: Common.DisplayMode.Aspect
-                        },
-                        {
-                            text: "Scale and Crop",
-                            value: Common.DisplayMode.Crop
-                        },
-                        {
-                            text: "Scale to Fill",
-                            value: Common.DisplayMode.Scale
-                        },
-                    ]
-                    textRole: "text"
-                    onActivated: cfg_DisplayMode = Common.cbCurrentValue(this)
-                    Component.onCompleted: currentIndex = Common.cbIndexOfValue(this, cfg_DisplayMode)
-                }
-            }
-
-            OptionItem {
-                text: 'Span Across Screens'
-                text_color: Kirigami.Theme.textColor
-                icon: '../../images/window.svg'
-                actor: Switch {
-                    id: ckbox_spanScreens
-                }
-                contentBottom: Text {
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: Kirigami.Theme.disabledTextColor
-                    text: "Show each screen's slice of the whole desktop. Enable 'Same wallpaper "
-                        + "on all screens' for a continuous image. Each screen renders the full desktop."
-                }
-            }
-
-            OptionItem {
-                text: 'Resume Time'
-                text_color: Kirigami.Theme.textColor
-                icon: '../../images/timer.svg'
-                actor: RowLayout {
-                    spacing: 0
-                    RowLayout {
-                        SpinBox {
-                            id: resumeSpin
-                            from: 1
-                            to: 60*1000
-                            stepSize: 50
-                        }
-                        Label { text: " ms"; color: Kirigami.Theme.textColor }
-                    }
-                }
-                contentBottom: ColumnLayout {
-                    Text {
-                        Layout.fillWidth: true
-                        color: Kirigami.Theme.disabledTextColor
-                        text: "Time to wait to resume playback from pause"
-                    }
                 }
             }
             OptionItem {
@@ -266,6 +218,26 @@ Flickable {
                     }
                 }
             }
+            OptionItem {
+                text: "Playback Speed"
+                text_color: Kirigami.Theme.textColor
+                icon: '../../images/fast-forward.svg'
+                actor: RowLayout {
+                    DoubleSpinBox {
+                        id: spin_speed
+                        dFrom: 0.1
+                        dTo: 16.0
+                        dStepSize: 0.1
+                    }
+                }
+            }
+        }
+        OptionGroup {
+            Layout.fillWidth: true
+            header.text: "Sources & accounts"
+            header.text_color: Kirigami.Theme.textColor
+            header.icon: '../../images/cheveron-down.svg'
+            header.color: Kirigami.Theme.activeBackgroundColor
 
             OptionItem {
                 text: 'Same wallpaper on all screens'
@@ -284,22 +256,111 @@ Flickable {
                         + "(one configuration for the whole system). Press Apply to take effect."
                 }
             }
+        }
+        OptionGroup {
+            Layout.fillWidth: true
+            header.text: "Appearance"
+            header.text_color: Kirigami.Theme.textColor
+            header.icon: '../../images/cheveron-down.svg'
+            header.color: Kirigami.Theme.activeBackgroundColor
 
             OptionItem {
-                text: "Playback Speed"
+                text: 'Display'
                 text_color: Kirigami.Theme.textColor
-                icon: '../../images/fast-forward.svg'
-                actor: RowLayout {
-                    DoubleSpinBox {
-                        id: spin_speed
-                        dFrom: 0.1
-                        dTo: 16.0
-                        dStepSize: 0.1
+                icon: '../../images/window.svg'
+                actor: ComboBox {
+                    id: displayMode
+                    model: [
+                        {
+                            text: "Keep Aspect Ratio",
+                            value: Common.DisplayMode.Aspect
+                        },
+                        {
+                            text: "Scale and Crop",
+                            value: Common.DisplayMode.Crop
+                        },
+                        {
+                            text: "Scale to Fill",
+                            value: Common.DisplayMode.Scale
+                        },
+                    ]
+                    textRole: "text"
+                    onActivated: cfg_DisplayMode = Common.cbCurrentValue(this)
+                    Component.onCompleted: currentIndex = Common.cbIndexOfValue(this, cfg_DisplayMode)
+                }
+            }
+            OptionItem {
+                text: 'Global sizing'
+                text_color: Kirigami.Theme.textColor
+                icon: '../../images/window.svg'
+                actor: Switch {
+                    objectName: "globalSizingEnabled"
+                    checked: root.globalSizingEnabled
+                    onToggled: root.setGlobalSizingEnabled(checked)
+                }
+                contentBottom: ColumnLayout {
+                    ComboBox {
+                        id: globalSizingModeSelector
+                        objectName: "globalSizingMode"
+                        Layout.fillWidth: true
+                        enabled: root.globalSizingEnabled
+                        model: [
+                            {text: "Fill (crop)", value: Common.DisplayMode.Crop},
+                            {text: "Stretch", value: Common.DisplayMode.Scale}
+                        ]
+                        textRole: "text"
+                        currentIndex: root.globalSizingMode === Common.DisplayMode.Scale ? 1 : 0
+                        onActivated: index => root.setGlobalSizingMode(
+                            Common.cbValueOfIndex(globalSizingModeSelector, index))
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Kirigami.Theme.disabledTextColor
+                        text: "Applies immediately to scene and video wallpapers on every screen. "
+                            + "Turn off to restore each wallpaper's Display setting."
                     }
                 }
             }
+            OptionItem {
+                text: 'Span Across Screens'
+                text_color: Kirigami.Theme.textColor
+                icon: '../../images/window.svg'
+                actor: Switch {
+                    id: ckbox_spanScreens
+                }
+                contentBottom: Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Kirigami.Theme.disabledTextColor
+                    text: "Show each screen's slice of the whole desktop. Enable 'Same wallpaper "
+                        + "on all screens' for a continuous image. Each screen renders the full desktop."
+                }
+            }
+        }
+        OptionGroup {
+            Layout.fillWidth: true
+            header.text: "Audio"
+            header.text_color: Kirigami.Theme.textColor
+            header.icon: '../../images/cheveron-down.svg'
+            header.color: Kirigami.Theme.activeBackgroundColor
 
-
+            OptionItem {
+                text: "Mute all wallpapers"
+                text_color: Kirigami.Theme.textColor
+                icon: '../../images/volume-off.svg'
+                actor: Switch {
+                    objectName: "globalAudioMute"
+                    checked: root.globalAudioMuted
+                    onToggled: root.setGlobalAudioMuted(checked)
+                }
+                contentBottom: Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Kirigami.Theme.disabledTextColor
+                    text: "Applies immediately to all screens. Stops wallpaper audio while animations keep running."
+                }
+            }
             OptionItem {
                 text: "Mute Audio"
                 text_color: Kirigami.Theme.textColor
@@ -331,6 +392,13 @@ Flickable {
                     }
                 }
             }
+        }
+        OptionGroup {
+            Layout.fillWidth: true
+            header.text: "Advanced"
+            header.text_color: Kirigami.Theme.textColor
+            header.icon: '../../images/cheveron-down.svg'
+            header.color: Kirigami.Theme.activeBackgroundColor
 
             OptionItem {
                 visible: libcheck.wallpaper
@@ -341,16 +409,6 @@ Flickable {
                     id: ckbox_mouseInput
                 }
             }
-       }
-
-        OptionGroup {
-            Layout.fillWidth: true
-
-            header.text: 'Video Option'
-            header.text_color: Kirigami.Theme.textColor
-            header.icon: '../../images/cheveron-down.svg'
-            header.color: Kirigami.Theme.activeBackgroundColor
-
             OptionItem {
                 text: 'Video Backend'
                 text_color: Kirigami.Theme.textColor
@@ -373,7 +431,6 @@ Flickable {
                     Component.onCompleted: currentIndex = Common.cbIndexOfValue(this, cfg_VideoBackend)
                 }
             }
-
             OptionItem {
                 text: 'Show Mpv Stats'
                 text_color: Kirigami.Theme.textColor
@@ -383,7 +440,6 @@ Flickable {
                     id: ckbox_mpvStats
                 }
             }
-
             OptionItem {
                 text: 'Hardware Decode'
                 text_color: Kirigami.Theme.textColor
@@ -407,18 +463,9 @@ Flickable {
                     }
                 }
             }
-        }
-        OptionGroup {
-            Layout.fillWidth: true
-
-            header.text: 'Scene Option'
-            header.text_color: Kirigami.Theme.textColor
-            header.icon: '../../images/cheveron-down.svg'
-            header.color: Kirigami.Theme.activeBackgroundColor
-            visible: libcheck.wallpaper
-
             OptionItem {
                 text: 'Fps'
+                visible: libcheck.wallpaper
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/tuning.svg'
                 actor: RowLayout {
@@ -447,6 +494,7 @@ Flickable {
             }
             OptionItem {
                 text: 'Cache static layers'
+                visible: libcheck.wallpaper
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/tuning.svg'
                 actor: Switch {
@@ -464,6 +512,7 @@ Flickable {
             }
             OptionItem {
                 text: 'Share GPU across screens'
+                visible: libcheck.wallpaper
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/tuning.svg'
                 actor: Switch {
@@ -482,6 +531,7 @@ Flickable {
             }
             OptionItem {
                 text: 'Mirror scene across screens'
+                visible: libcheck.wallpaper
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/tuning.svg'
                 actor: Switch {
@@ -501,6 +551,7 @@ Flickable {
             }
             OptionItem {
                 text: 'Shader cache'
+                visible: libcheck.wallpaper
                 text_color: Kirigami.Theme.textColor
                 icon: '../../images/information-outline.svg'
                 actor: Kirigami.ActionToolBar {
