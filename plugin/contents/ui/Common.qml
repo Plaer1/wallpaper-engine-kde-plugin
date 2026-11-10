@@ -188,6 +188,71 @@ QtObject {
     function getWorkshopDir(steamLibraryPath) {
         return steamLibraryPath + "/steamapps/workshop/content/431960";
     }
+
+    function normalizeBrowserFilters(filters) {
+        const input = filters && typeof filters === "object" && !Array.isArray(filters) ? filters : {};
+        const stringList = value => Array.isArray(value)
+            ? Array.from(new Set(value.filter(item => typeof item === "string")
+                .map(item => item.trim().toLocaleLowerCase()).filter(item => item.length > 0))) : [];
+        const sourceKind = input.sourceKind === "workshop" || input.sourceKind === "shared"
+            ? input.sourceKind : "";
+        return {
+            query: typeof input.query === "string" ? input.query.trim().toLocaleLowerCase() : "",
+            includedTags: stringList(input.includedTags),
+            excludedTags: stringList(input.excludedTags),
+            sourceKind
+        };
+    }
+
+    function browserTagKeys(item) {
+        if (!item || !Array.isArray(item.tags)) return [];
+        return item.tags.map(tag => {
+            if (typeof tag === "string") return tag.trim().toLocaleLowerCase();
+            return tag && typeof tag.key === "string" ? tag.key.trim().toLocaleLowerCase() : "";
+        }).filter(tag => tag.length > 0);
+    }
+
+    function getBrowserTagCatalog(items) {
+        const tags = new Map();
+        (Array.isArray(items) ? items : []).forEach(item => {
+            (Array.isArray(item && item.tags) ? item.tags : []).forEach(tag => {
+                const sourceTag = typeof tag === "string" ? tag
+                    : tag && typeof tag.key === "string" ? tag.key : "";
+                const key = sourceTag.trim().toLocaleLowerCase();
+                if (key && !tags.has(key)) tags.set(key, sourceTag.trim());
+            });
+        });
+        return Array.from(tags.values()).sort((a, b) => a.localeCompare(b, undefined, {sensitivity: "base"}));
+    }
+
+    function matchesBrowserFilters(item, filters) {
+        return createBrowserFilter(filters)(item);
+    }
+
+    function createBrowserFilter(filters) {
+        const normalized = normalizeBrowserFilters(filters);
+        const tokens = normalized.query.split(/\s+/).filter(Boolean);
+        const needsTagSet = normalized.includedTags.length > 0 || normalized.excludedTags.length > 0;
+        if (!normalized.sourceKind && !needsTagSet && tokens.length === 0)
+            return () => true;
+        return item => {
+            if (!item) return false;
+            if (normalized.sourceKind && item.sourceKind !== normalized.sourceKind) return false;
+
+            const tags = tokens.length > 0 || needsTagSet ? browserTagKeys(item) : [];
+            if (needsTagSet) {
+                const tagSet = new Set(tags);
+                if (normalized.includedTags.some(tag => !tagSet.has(tag))) return false;
+                if (normalized.excludedTags.some(tag => tagSet.has(tag))) return false;
+            }
+
+            if (tokens.length === 0) return true;
+            const text = [item.title, ...tags, item.publishedFileId]
+                .filter(value => typeof value === "string")
+                .join(" ").toLocaleLowerCase();
+            return tokens.every(token => text.includes(token));
+        };
+    }
     function getWorkshopDirs(steamLibraryPath) {
         return [
             "/steamapps/workshop/content/431960",

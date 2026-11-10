@@ -1,229 +1,193 @@
-# Wallpaper Engine for KDE (Plasma 6)
+# Wallpaper Engine for KDE
 
-A wallpaper plugin integrating [Wallpaper Engine](https://store.steampowered.com/app/431960/Wallpaper_Engine) into KDE Plasma wallpaper settings.
+![Wallpaper Engine for KDE Plasma 6 — scene, video and web wallpapers](docs/images/banner.png)
 
-- **Native file operations** — C++, no Python
-- **KDE 6.5+ theme reactivity** — UI stays visible when switching between light and dark themes
-- **Plasma 6 / Qt 6**
-- **Span Across Screens** — show each screen's part of one desktop-sized wallpaper
+Play Wallpaper Engine scene, video and web wallpapers on KDE Plasma 6.
+This is [Plaer1’s fork](https://github.com/Plaer1/wallpaper-engine-kde-plugin) of
+[RainyPixel’s plugin](https://github.com/RainyPixel/wallpaper-engine-kde-plugin),
+originally based on [catsout’s work](https://github.com/catsout/wallpaper-engine-kde-plugin).
+Wallpaper Engine and its wallpapers are installed separately through Steam.
 
-## Hyprland and Omarchy
+This fork adds Steam library/account discovery, following Wallpaper Engine’s saved
+selection, a searchable wallpaper browser, shared audio/sizing controls, and a tray
+menu with pause/resume and a global shortcut.
 
-The [`hyprland/`](hyprland/README.md) directory contains a separate host that shows web wallpapers
-as a Wayland background on Hyprland without Plasma. It has its own build
-(`cmake -B build/hyprland -S hyprland`) and currently supports web wallpapers only; scene and
-video wallpapers remain KDE-only for now. The KDE plugin build below is unaffected.
+[![Wallpaper browser with search and filters on the left and wallpaper options on the right](docs/images/wallpaper-browser.png)](docs/images/wallpaper-browser.png)
 
-## Install
+*Live wallpaper browser with a custom Plasma theme. The plugin follows your desktop’s appearance.*
 
-### Arch Linux (AUR)
+## Requirements
+
+- KDE Plasma 6; Qt 6.7 or newer; a working Vulkan 1.1 driver for scene wallpapers.
+- Wallpaper Engine installed through Steam, with wallpapers downloaded locally.
+- For building: a C++20 compiler, CMake, Ninja, extra-cmake-modules, Plasma/KF6
+  development files, Qt Quick/QML and Qt GUI private headers, libmpv, LZ4 and Vulkan headers.
+- At runtime: Kirigami, KCMUtils, Qt Quick Controls/Layouts, Qt5Compat GraphicalEffects,
+  Qt WebEngine/WebChannel and Qt Multimedia. Available video codecs depend on the backend.
+
+The separate [Hyprland host](hyprland/README.md) has its own build and currently
+supports web wallpapers only. The instructions below install the KDE plugin.
+
+## Build and install
+
+On Arch Linux:
+
 ```sh
-yay -S wallpaper-engine-kde-plugin-git
-# or
-paru -S wallpaper-engine-kde-plugin-git
+sudo pacman -S --needed base-devel git cmake ninja extra-cmake-modules \
+  libplasma plasma-desktop kglobalaccel kxmlgui kirigami kcmutils \
+  mpv lz4 vulkan-headers qt6-base qt6-declarative \
+  qt6-webchannel qt6-webengine qt6-multimedia qt6-5compat \
+  gst-libav gst-plugins-good gst-plugin-pipewire
 ```
 
-### Fedora / rpm-ostree / Bazzite (RPM)
-
-A prebuilt RPM from February 2026 is available from
-[CaptSilver's releases](https://github.com/CaptSilver/wallpaper-engine-kde-plugin/releases). It predates
-the current code, so for the current version build the RPM yourself as described under
-[Build RPM package](#build-rpm-package-fedora).
+Clone the fork’s working branch and build:
 
 ```sh
-curl -LO https://github.com/CaptSilver/wallpaper-engine-kde-plugin/releases/download/v1.0/wallpaper-engine-kde-plugin-qt6-0-1.fc43.x86_64.rpm
-```
-
-Install:
-```sh
-# Standard Fedora
-sudo dnf install ./wallpaper-engine-kde-plugin-qt6-0-1.fc43.x86_64.rpm
-
-# rpm-ostree / Bazzite
-rpm-ostree install ./wallpaper-engine-kde-plugin-qt6-0-1.fc43.x86_64.rpm
-```
-
-### Build from source
-
-#### Dependencies
-
-Arch:
-```sh
-sudo pacman -S extra-cmake-modules plasma-framework gst-libav ninja \
-base-devel mpv qt6-declarative qt6-webchannel vulkan-headers cmake lz4 \
-kglobalaccel kxmlgui
-```
-
-Fedora:
-```sh
-# Add RPM Fusion repos (required for ffmpeg/mpv)
-sudo dnf install -y \
-    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
-
-# Replace ffmpeg-free with full ffmpeg
-sudo dnf swap -y ffmpeg-free ffmpeg --allowerasing
-sudo dnf install -y ffmpeg-devel --allowerasing
-
-sudo dnf install vulkan-headers plasma-workspace-devel kf6-plasma-devel \
-    kf6-kcoreaddons-devel kf6-kpackage-devel \
-    kf6-kglobalaccel-devel kf6-kxmlgui-devel gstreamer1-libav \
-    lz4-devel mpv-libs-devel qt6-qtbase-private-devel libplasma-devel \
-    qt6-qtwebchannel-devel cmake extra-cmake-modules
-```
-
-#### Build and Install
-```sh
-# Download source
-git clone https://github.com/RainyPixel/wallpaper-engine-kde-plugin.git
+git clone --recurse-submodules --branch clanker/steam-library-picker \
+  https://github.com/Plaer1/wallpaper-engine-kde-plugin.git
 cd wallpaper-engine-kde-plugin
-
-# Download submodules
-git submodule update --init --force --recursive
-
-# Configure and build
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-
-# Install (system-wide)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
 sudo cmake --install build
+```
 
-# Restart plasmashell
+For an existing checkout, run `git submodule update --init --recursive` before
+building. Save any open desktop-settings edits, then reload Plasma:
+
+```sh
 systemctl --user restart plasma-plasmashell.service
 ```
 
-To run native, scene parser, shader compiler and QML tests, configure with
-`-DBUILD_TESTS=ON`, build, then run `ctest --test-dir build --output-on-failure`.
-QML tests additionally need Qt 6.7+ Quick Test, Quick Controls/Layouts and Kirigami
-runtime modules.
+[Fedora/RPM instructions](rpm/README.md) are available separately. This fork’s recent
+build and desktop checks were on Arch Linux with Plasma 6/Wayland; other distributions
+and multi-monitor combinations have not all been validated. Packages from upstream
+or third parties may contain different changes from this fork.
 
-#### Build RPM package (Fedora)
+## Choose wallpapers
 
-Useful for rpm-ostree/Bazzite systems where layered packages survive updates.
+1. Right-click the desktop → **Desktop and Wallpaper Settings**.
+2. Select **Wallpaper Engine for Kde** as the wallpaper type.
+3. Single-click a wallpaper to preview/stage it; **Apply** saves the selection.
+   Double-click applies it immediately and keeps unrelated settings edits pending.
 
-On Bazzite and other rpm-ostree hosts `dnf` and `rpmbuild` do not run directly, so do the build
-inside a Fedora toolbox or distrobox of the same release as the host (`rpm -E %fedora` prints it)
-and skip the tmpfs mount there. Your home directory is shared with the container, so afterwards
-layer the RPM from the host.
+Steam libraries are detected automatically, including native, Flatpak and Snap
+locations and libraries on other drives. One library is selected automatically;
+open the browser’s **Settings** disclosure to choose another, **Rescan**, or **Browse…**.
+Choose the library folder containing `steamapps`.
 
-```sh
-git clone https://github.com/RainyPixel/wallpaper-engine-kde-plugin.git
-cd wallpaper-engine-kde-plugin
+The collapsible left sidebar contains search, tag inclusion/exclusion, source,
+type, age-rating, favorite and playlist filters. Search matches names, tags and
+Workshop IDs. Account scope chooses all downloaded wallpapers or selected accounts’
+subscriptions, with an option to include local/shared projects. The right inspector
+can be resized or hidden. Filters use cached metadata; new downloads are detected
+through filesystem notifications.
 
-# Install build dependencies from spec
-sudo dnf builddep ./rpm/wek.spec
+## Follow Wallpaper Engine
 
-# Initialise submodules
-git submodule update --init --force --recursive
+Enable **Follow Wallpaper Engine’s current selection**, choose the account/source,
+and click **Apply** once. Subsequent saved selections in Wallpaper Engine update the
+desktop without reopening KDE settings. Browse scope and the followed account are
+separate choices. Use an explicit account/source; the active Proton account is not
+automatically inferred. An unassociated legacy section can be mapped to a verified
+account through the source picker’s confirmation step.
 
-# Use tmpfs for the build directory to avoid slow disk writes
-sudo mount -t tmpfs tmpfs ~/rpmbuild/BUILD
-
-# Build the RPM
-rpmbuild --define="commit $(git rev-parse HEAD)" \
-    --define="reporoot $(pwd)" \
-    --define="glslang_ver 11.8.0" \
-    --undefine=_disable_source_fetch \
-    -ba ./rpm/wek.spec
-
-sudo umount ~/rpmbuild/BUILD
-# Install (rpm-ostree example)
-rpm-ostree install ~/rpmbuild/RPMS/x86_64/wallpaper-engine-kde-plugin-qt6-*.rpm
-```
-
-## Activate in Plasma
-
-After installing via any method:
-
-1. Right-click the desktop → **Configure Desktop and Wallpaper...**
-2. Open the **Wallpaper Type** dropdown and select **Wallpaper Engine for KDE**
-3. Your subscribed Workshop wallpapers appear in the list — select one and click **Apply**
-
-Steam libraries are detected automatically, including native, Flatpak and Snap installs and libraries on other drives. A single library is selected immediately. In the Wallpapers tab, open **Settings** to reveal the Steam library dropdown, account scope, **Rescan**, and **Browse…** controls. Rescan discovers newly added libraries and downloaded content; Browse remains available for custom locations. Saved selections are preserved, including temporarily disconnected drives. With multiple Wallpaper Engine accounts, browsing and Follow choices are account-specific; select the account whose saved wallpaper you want to use.
-
-Enable **Follow Wallpaper Engine’s current selection** on the Wallpapers tab and click Apply once to use Wallpaper Engine’s own UI for subsequent changes. Select an account and source explicitly; choices can be account-specific, an existing legacy session section, or a user-associated legacy mapping. A legacy mapping is offered only after you associate it with a verified account and the saved section/config still match. Account identity for Wallpaper Engine running under Proton has not been verified, so the plugin does not claim an identified-current-account choice. Following reads saved wallpaper selections; it does not recreate Wallpaper Engine’s unsaved playlist playback state or copy its wallpaper-property settings.
-
-Under Proton, Wallpaper Engine may leave its applied wallpaper map empty even after a browser selection. Install the included version 2 compatibility bridge, then reopen Wallpaper Engine’s browser and choose a downloaded wallpaper:
+If Proton’s Wallpaper Engine UI does not save an applied selection, install the
+optional bridge with Python 3. Adjust the path for your Steam library:
 
 ```sh
-python3 tools/install-we-selection-bridge.py "$HOME/.local/share/Steam/steamapps/common/wallpaper_engine"
+python3 tools/install-we-selection-bridge.py \
+  "$HOME/.local/share/Steam/steamapps/common/wallpaper_engine"
 ```
 
-Adjust the install directory if Steam uses another library. This adds a small script to Wallpaper Engine’s UI (with a backup of its HTML entry point); the script records selections by Steam account in the existing browser settings. It uses Angular UI change notifications, with no timer. Rerun the same command after Steam replaces the UI during updates/verification; append `--remove` to uninstall the bridge and restore the backed-up entry point. The follower uses bridge data only when no native applied selection is available.
+Reopen Wallpaper Engine’s wallpaper browser and select a downloaded wallpaper.
+The bridge modifies its UI files, backs up the entry point, and records browser
+selections by account. Rerun the installer after Steam updates/verifies those files;
+add `--remove` to remove it. Following prefers native applied selections when present.
+Both paths use change notifications rather than recurring file polling.
 
-The picker also watches Steam project directories and metadata, so downloads arriving while settings are open appear automatically, including when Steam creates the directory before writing its project file. These watches stop when the list is inactive. Follow uses filesystem notifications, a 180 ms debounce and background file parsing; account observation for tray source choices is event-driven and enabled only for a registered desktop wallpaper target. No recurring catalog polling is used.
+Following reads saved selections, not unsaved playlist playback or wallpaper-property
+edits. Unavailable wallpapers leave the last working background in place. Random
+rotation is suspended while following. A manual double-click selection stops Follow;
+disabling Follow returns to the manual KDE selection.
 
-The follower uses filesystem notifications, a 180 ms debounce and background file parsing. There is no recurring polling. Atomic config replacement is handled, repeated selections do not restart playback, and incomplete writes or unavailable wallpapers leave the last working background in place. KDE random wallpaper rotation is suspended while following. Disable the option to return to your manual KDE selection.
+## Tray and playback
 
-**Settings → Global sizing** overrides scene and video sizing on every screen immediately. Enable it and choose **Fill (crop)** to preserve proportions while filling the screen, or **Stretch** to fill without preserving proportions. Turn it off to restore each wallpaper’s own Display setting. This works independently of shared wallpaper mode; web wallpapers use their page layout.
+Enable **Wallpaper Engine Controls** in the system tray settings. Set its visibility
+to **Always shown** if you want it outside the overflow popup. Its menus provide:
 
-**Settings → Mute all wallpapers** is a persistent master switch that takes effect immediately on all screens, independently of shared wallpaper mode and per-wallpaper audio overrides. MPV disables the audio track; scene wallpapers release their audio device; Qt Multimedia detaches its output and disables the audio track. Web wallpapers suspend Web Audio contexts and pause audio-only media where supported. Chromium still requires an output-mute fallback for embedded video and unsupported web audio APIs. Unmuting restores each wallpaper’s own mute setting.
+- **Launch Wallpaper Engine** — first item; opens `steam://rungameid/431960`.
+- **Pause / Resume** — controls all registered wallpaper screens.
+- **Configure Controls** — includes the global pause/resume shortcut.
+- **Desktop and Wallpaper Settings** — opens the KDE wallpaper configuration.
 
-### Playback and tray controls
+![Compact four-item tray menu with Launch Wallpaper Engine first, Pause, Configure Controls, and Desktop and Wallpaper Settings](docs/images/tray-menu.png)
 
-Plasma also provides a **Wallpaper Engine Controls** panel applet with a compact menu: **Pause** or **Resume**, **Configure Controls**, and **Desktop and Wallpaper Settings**. Configure Controls includes the optional global pause/resume hotkey. Resume can temporarily override ordinary primary-monitor window coverage; fullscreen and other hard pause reasons still prevent playback. The applet is a client of the in-process wallpaper runtime; it does not start a separate daemon.
+*Compact tray menu, rendered from the applet’s controls in a light theme.*
 
-A shared **Settings → Playback** rule pauses all wallpaper screens when the selected condition is met on the primary monitor. The choices are primary monitor mostly covered (the default, including tiled windows), focused window, maximized window, focused or maximized window, any window, and fullscreen only. Fullscreen applications always pause every wallpaper screen. The resume delay applies after the selected primary-monitor window rule clears and is disabled for fullscreen-only mode. Resume can temporarily override ordinary window-based pauses; fullscreen and other hard pause conditions remain in force.
+Under **Settings → Playback**, choose the primary-monitor window rule: mostly covered
+(including tiled windows), focused, maximized, focused or maximized, any window, or
+fullscreen only. The selected rule pauses all wallpaper screens. Visible fullscreen apps on
+any screen also pause all wallpapers in automatic mode. Tray Resume temporarily
+bypasses window/fullscreen pauses; it does not bypass battery or game-mode rules.
+The override lasts until another playback command or the session ends. Resume delay
+applies after the primary-monitor window rule clears and is disabled for fullscreen-only mode.
 
-Runtime state and wallpaper/file changes are updated from notifications and model events rather than idle polling. This includes the desktop visibility monitor and account observation used by registered wallpaper targets. Runtime reports the playback policy dispatched to the backend; it does not independently confirm that rendered frames have stopped or resumed.
+**Mute all wallpapers** and **Global sizing** act across screens independently of
+shared wallpaper mode. Sizing offers **Fill (crop)** and **Stretch** for scene/video
+wallpapers; web pages control their own layout. Master mute disables or detaches audio
+where supported; some web media still needs Chromium’s output-mute fallback.
 
-Enable **Span Across Screens** under Display to lay out a wallpaper over the bounding rectangle
-of all screens. Use **Same wallpaper on all screens** and the same Display mode for a continuous
-image. Each backend uses the full desktop size; compatible scenes can share rendering with
-**Mirror Scene**. The option is off by default.
+**Same wallpaper on all screens** shares wallpaper settings. **Span Across Screens**
+lays out a wallpaper across the desktop bounds; use the same wallpaper/display mode
+on each screen. Compatible scenes can share rendering through **Mirror scene across screens**.
 
-> **Note:** After an rpm-ostree/Bazzite install you may need to reboot before the plugin starts working. For cmake installs, restarting plasmashell is enough: `systemctl --user restart plasma-plasmashell.service`
+## Limits and troubleshooting
 
-If the list stays empty and you copied the plugin into
-`~/.local/share/plasma/wallpapers/com.github.catsout.wallpaperEngineKde` at some point, remove that
-copy. Plasma prefers it over the installed package, and it stops matching the plugin's native part
-as soon as either one is updated.
+- Scene compatibility is incomplete; some wallpapers can crash Plasma. Video inside
+  scene `.tex` files is not played. Ordinary video wallpapers use Qt Multimedia or mpv.
+- WebGL and some web audio APIs may not behave as in Wallpaper Engine on Windows.
+- Lock-screen wallpapers are unsupported. Wallpaper mouse capture can interfere
+  with desktop long-press actions.
+- Shared-mode Next can report partial results. Mirrored/spanned and activity mappings
+  need further multi-output validation. Runtime status reports dispatched playback
+  policy, not independent confirmation of rendered frames.
+- An open settings dialog observes same-process QML changes; arbitrary external file
+  or C++ changes may require reopening it. Qt Multimedia reload does not confirm a first frame.
 
-### Uninstall
-1. Remove files listed in `build/install_manifest.txt`
-2. `kpackagetool6 -t Plasma/Wallpaper -r com.github.catsout.wallpaperEngineKde`
+If an old user-installed plugin masks the system version, move aside
+`~/.local/share/plasma/wallpapers/com.github.catsout.wallpaperEngineKde` and reload Plasma.
+Keep the QML package and native module from the same build.
 
-## Usage
-1. *Wallpaper Engine* installed on Steam
-2. Subscribe to some wallpapers on the Workshop
-3. Open the Wallpapers tab — the Steam library is found automatically
-   - Use **Rescan** for new libraries, the dropdown to switch libraries, or **Browse…** for a custom folder
-   - The *steamlibrary* is the one containing the *steamapps* folder
+For a crash loop, stop Plasma before editing, back up
+`~/.config/plasma-org.kde.plasma.desktop-appletsrc`, and clear the affected wallpaper’s
+`WallpaperSource` and disable its `FollowWallpaperEngine` setting. Shared selections
+may also be stored in `~/.config/wekde/global.json`; clear the offending source there
+as well when shared mode is enabled. Restore a working selection before
+reenabling Follow. Logs are available with:
 
-## Requirements
-- KDE Plasma 6
-- Qt 6.7+ (requires `QQuickRhiItem`)
-- Vulkan 1.1+
-- C++20 (GCC 10+)
-- [Vulkan driver](https://wiki.archlinux.org/title/Vulkan#Installation) installed (AMD users: use RADV)
+```sh
+journalctl --user -u plasma-plasmashell.service -b
+```
 
-## Known Issues
-- Some scene wallpapers may **crash** KDE
-  - Remove `WallpaperSource` line in `~/.config/plasma-org.kde.plasma.desktop-appletsrc` and restart KDE to fix
-- Mouse long press (to enter panel edit mode) is broken on desktop
-- Screen Locking is not supported
-- Identifying the current Wallpaper Engine account under Proton is not verified; that choice remains unavailable.
-- Next wallpaper in shared GlobalMode can currently advance only through the primary target and may report a partial result for other selected targets.
-- Qt Multimedia reload cannot yet confirm that a replacement wallpaper reached its first frame.
-- Shared playback modes were checked live in a configured Plasma 6/Wayland session. Preview exclusion, multi-output activity mapping, and mirrored/spanned edge cases still need additional host validation.
-- Settings-dialog conflict handling observes same-object QML writes; arbitrary external C++ or on-disk edits are not guaranteed to refresh an open dialog.
+[Report issues in this fork](https://github.com/Plaer1/wallpaper-engine-kde-plugin/issues)
+with the commit, Plasma/Qt versions, session type, wallpaper ID/type, reproduction
+steps and relevant logs. Remove personal paths and account identifiers before sharing.
+For source installs, `build/install_manifest.txt` lists installed files to remove;
+for packaged installs, use the package manager. Reload Plasma after removal.
 
-## Support Status
+## Development
 
-### Scene (2D)
-Supported by Vulkan 1.1. Requires *Wallpaper Engine* installed for assets.
+Configure with `-DBUILD_TESTS=ON`, build, then run
+`ctest --test-dir build --output-on-failure`. QML checks need Qt Quick Test and the
+KDE QML modules. [Native QML integration checks](tests/integration/README.md) require
+an isolated configuration directory because they write shared settings.
 
-### Web
-Basic web APIs supported. WebGL may not work properly.
+## License and credits
 
-### Video
-- **QtMultimedia** (default) — uses GStreamer
-- **MPV** — requires plugin lib compilation
-
-Video embedded in a scene's `.tex` file is not played yet. Such textures use a transparent
-placeholder instead of uploading compressed video bytes to the GPU; the other scene layers
-can still render. Ordinary video wallpapers are unaffected.
-
-## Acknowledgments
-- [RePKG](https://github.com/notscuffed/repkg)
-- All open-source libraries used in this project
+[GPL-2.0-or-later](https://spdx.org/licenses/GPL-2.0-or-later.html); see [LICENSE](LICENSE).
+This preserves the upstream `GPLv2+` declaration. Copyright and credit remain with
+upstream authors and contributors; this fork is maintained by Plaer1.
+Bundled [third-party components](src/backend_scene/third_party) retain their own
+licenses and notices. Thanks also to [RePKG](https://github.com/notscuffed/repkg).
+Wallpaper Engine and wallpaper assets are separate works, not included with this plugin.
+[Image sources and capture notes](docs/images/README.md).

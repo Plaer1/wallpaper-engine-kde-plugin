@@ -150,6 +150,10 @@
       <label>FilterStr</label>
       <default></default>
     </entry>
+    <entry name="BrowserFilters" type="String">
+      <label>Browser filters</label>
+      <default>{}</default>
+    </entry>
     <entry name="PerOptChanged" type="Int">
       <label>PerOptChanged</label>
       <default>0</default>

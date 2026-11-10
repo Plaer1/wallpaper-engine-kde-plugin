@@ -109,7 +109,7 @@ Flickable {
                         objectName: "pausePolicyDescription"
                         Layout.fillWidth: true
                         color: Kirigami.Theme.disabledTextColor
-                        text: "The selected window rule is checked on the primary monitor and pauses all wallpaper screens. Fullscreen apps always pause every screen."
+                        text: "The selected window rule is checked on the primary monitor and pauses all wallpaper screens. Fullscreen apps pause every screen automatically; Resume from the tray can temporarily override both pauses. Battery, game-mode, sleep, and inactive-session pauses remain in effect."
                         wrapMode: Text.Wrap
                     }
                }

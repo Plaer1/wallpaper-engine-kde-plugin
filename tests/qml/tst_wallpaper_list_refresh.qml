@@ -44,9 +44,12 @@ TestCase {
         folderReads = 0;
         holdFolder = null;
     }
-    function makeModel() {
+    function makeModel(workshopDirs) {
         const watcher = createTemporaryObject(watcherComponent, this);
-        const list = createTemporaryObject(modelComponent, this, {directoryWatcher: watcher});
+        const list = createTemporaryObject(modelComponent, this, {
+            directoryWatcher: watcher,
+            workshopDirs: workshopDirs || ["/tmp/workshop"]
+        });
         verify(list);
         list.enabled = true;
         return {list: list, watcher: watcher};
@@ -103,6 +106,51 @@ TestCase {
         tryVerify(() => fixture.list.model.count === 1
             && fixture.list.model.get(0).path === "file:///tmp/another%20library/old");
         compare(folderReads, 2);
+    }
+    function test_browserFiltersUseCachedMetadataAndKeepTagCatalogUnfiltered() {
+        entries = ["100", "200", "300", "400"];
+        metadata = {
+            "100": {title: "Aurora Galaxy", type: "scene", contentrating: "Everyone", tags: ["Landscape", "Sci-Fi"]},
+            "200": {title: "Forest Dawn", type: "scene", contentrating: "Everyone", tags: ["Landscape", "Nature"]},
+            "300": {title: "Meme Garden", type: "scene", contentrating: "Everyone", tags: ["Meme", "Nature"]},
+            "400": {type: "scene", contentrating: "Everyone"}
+        };
+        const fixture = makeModel(["/tmp/steamapps/workshop/content/431960"]);
+        const list = fixture.list;
+        tryCompare(list.model, "count", 4);
+        compare(list.browserTagCatalog, ["Landscape", "Meme", "Nature", "Sci-Fi"]);
+        const reads = folderReads;
+        const legacyFilter = list.filterStr;
+
+        list.browserFilters = {
+            query: "aurora 100",
+            includedTags: ["landscape"],
+            excludedTags: ["Meme"],
+            sourceKind: "workshop"
+        };
+        tryCompare(list.model, "count", 1);
+        compare(list.model.get(0).publishedFileId, "100");
+        compare(list.filterStr, legacyFilter);
+        compare(list.browserTagCatalog, ["Landscape", "Meme", "Nature", "Sci-Fi"]);
+        compare(folderReads, reads);
+
+        list.browserFilters = {includedTags: ["Landscape", "Nature"]};
+        tryCompare(list.model, "count", 1);
+        compare(list.model.get(0).publishedFileId, "200");
+        compare(folderReads, reads);
+
+        list.browserFilters = {sourceKind: "shared"};
+        tryCompare(list.model, "count", 0);
+        compare(folderReads, reads);
+
+        list.browserFilters = {includedTags: ["not in catalog"]};
+        tryCompare(list.model, "count", 0);
+        list.browserFilters = {};
+        tryCompare(list.model, "count", 4); // Missing metadata stays visible without an active filter.
+
+        list.browserFilters = {query: "   ", includedTags: [42], sourceKind: "unknown"};
+        tryCompare(list.model, "count", 4); // malformed/unknown values safely normalize to no extra filter
+        compare(folderReads, reads);
     }
     function expectResolved(promise) {
         let result = "pending";

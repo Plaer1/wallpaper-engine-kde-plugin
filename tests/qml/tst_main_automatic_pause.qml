@@ -21,6 +21,11 @@ TestCase {
         id: fakeGameMode
         property bool reqPause: false
     }
+    QtObject {
+        id: fakeSession
+        property bool sleeping: false
+        property bool inactive: false
+    }
 
     Component {
         id: resolverComponent
@@ -29,6 +34,8 @@ TestCase {
             fullscreenPause: fakeWindowModel.globalFullscreenPause
             batteryPause: fakePowerSource.reqPause
             gameModePause: fakeGameMode.reqPause
+            sleepPause: fakeSession.sleeping
+            inactiveSessionPause: fakeSession.inactive
         }
     }
 
@@ -51,6 +58,8 @@ TestCase {
         fakeWindowModel.globalFullscreenPause = false;
         fakePowerSource.reqPause = false;
         fakeGameMode.reqPause = false;
+        fakeSession.sleeping = false;
+        fakeSession.inactive = false;
     }
 
     function test_crossScreenFullscreenPausesEvenWhenOrdinaryModeWouldNot() {
@@ -98,14 +107,14 @@ TestCase {
         tryCompare(resolver, "canPlay", false);
     }
 
-    function test_playDespiteWindowsOverridesOrdinaryWindowOnly() {
+    function test_playDespiteWindowsOverridesWindowAndFullscreenButKeepsHardPauses() {
         const resolver = createTemporaryObject(resolverComponent, this);
         verify(resolver);
         fakeWindowModel.reqPause = true;
         fakeWindowModel.globalFullscreenPause = true;
         verify(resolver.setPlaybackMode("playDespiteWindows"));
-        compare(resolver.canPlay, false);
-        compare(resolver.pauseReasons, ["fullscreen"]);
+        compare(resolver.canPlay, true);
+        compare(resolver.pauseReasons, []);
 
         fakeWindowModel.globalFullscreenPause = false;
         tryCompare(resolver, "canPlay", true);
@@ -116,8 +125,18 @@ TestCase {
         fakePowerSource.reqPause = false;
         fakeGameMode.reqPause = true;
         tryCompare(resolver, "canPlay", false);
-
+        compare(resolver.pauseReasons, ["gameMode"]);
         fakeGameMode.reqPause = false;
+
+        fakeSession.sleeping = true;
+        tryCompare(resolver, "canPlay", false);
+        compare(resolver.pauseReasons, ["sleep"]);
+        fakeSession.sleeping = false;
+        fakeSession.inactive = true;
+        tryCompare(resolver, "canPlay", false);
+        compare(resolver.pauseReasons, ["inactiveSession"]);
+        fakeSession.inactive = false;
+
         verify(resolver.setPlaybackMode("automatic"));
         tryCompare(resolver, "canPlay", false);
         compare(resolver.pauseReasons, ["window"]);
@@ -139,7 +158,7 @@ TestCase {
             ["manual", "battery", "gameMode", "fullscreen", "window"]);
 
         verify(resolver.setPlaybackMode("playDespiteWindows"));
-        compare(resolver.pauseReasons, ["battery", "gameMode", "fullscreen"]);
+        compare(resolver.pauseReasons, ["battery", "gameMode"]);
     }
 
     function test_manualPauseSurvivesBackendReplacementAndAutomaticResume() {

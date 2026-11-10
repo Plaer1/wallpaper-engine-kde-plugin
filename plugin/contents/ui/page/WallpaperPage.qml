@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import QtQuick.Controls 2.3
 import QtQuick.Controls 2.3 as QQC
+import QtQuick.Controls 2.15 as QQC15
 import QtQuick.Window 2.0 // for Screen
 import QtQuick.Dialogs
 import QtQuick.Layouts 1.5
@@ -17,15 +18,23 @@ import org.kde.kcmutils as KCM
 import org.kde.kirigami 2.6 as Kirigami
 import org.kde.kquickcontrolsaddons 2.0
 
-RowLayout {
+QQC15.SplitView {
     id: page
     Layout.fillWidth: true
+    orientation: Qt.Horizontal
 
     // On narrow config dialogs, Details becomes a second reachable view instead
     // of disappearing with the width-constrained split inspector.
     property int detailsBreakpoint: 1040
     property bool detailsView: false
     property bool settingsExpanded: false
+    property bool filtersView: false
+    property bool filterSidebarExpanded: true
+    property bool accountScopeExpanded: false
+    property bool inspectorExpanded: true
+    property int inspectorPreferredWidth: 280
+    property string activationStatus: ""
+    property var immediateApplyHandler: null
     readonly property real splitInspectorMinimumWidth: right_content.image_size
         + 2 * right_content.content_margin + right_content_scrollbar.width
     readonly property bool narrowLayout: width < Math.max(detailsBreakpoint,
@@ -40,6 +49,8 @@ RowLayout {
     property var browseScope: ({mode: "allDownloaded", accountKeys: [], includeSharedProjects: true})
     property var followSources: []
     property var followSelection: ({mode: "legacySession", accountKey: "", sourceKey: "config:steamuser"})
+    property var browserFilters: ({query: "", includedTags: [], excludedTags: [], sourceKind: ""})
+    property var browserTagCatalog: []
     // config.qml supplies the editor draft so this page never reads or edits
     // the reconciled cfg_ export directly for Follow fields.
     property var followEnabled: undefined
@@ -50,6 +61,7 @@ RowLayout {
     property bool allowIdentifiedCurrent: false
     property var _activeBrowseScope: normalizeBrowseScope(browseScope)
     property var _activeFollowSelection: normalizeFollowSelection(followSelection)
+    property var _activeBrowserFilters: normalizeBrowserFilters(browserFilters)
     property var pendingManualSelection: null
 
     signal browseScopeSelected(var scope)
@@ -57,6 +69,7 @@ RowLayout {
     signal followEnabledSelected(bool enabled)
     signal followAccountSelected(string account)
     signal manualWallpaperSelected(var wallpaper)
+    signal browserFiltersSelected(var filters)
 
     readonly property bool accountCatalogAvailable: accountCatalogSnapshot
         && accountCatalogSnapshot.schemaVersion === 1
@@ -64,6 +77,8 @@ RowLayout {
         ? cfg_FollowWallpaperEngine : Boolean(followEnabled)
     readonly property string editorFollowAccount: followAccount === undefined
         ? cfg_WallpaperEngineAccount : String(followAccount)
+    readonly property var legacyFilterValues: Common.filterModel.getValueArray(cfg_FilterStr)
+    readonly property real filterPaneWidth: 248
 
     function librarySummary() {
         const path = String(steamDetect.selectedLibrary || cfg_SteamLibraryPath || "");
@@ -106,6 +121,53 @@ RowLayout {
             sourceKey: typeof source.sourceKey === "string" ? source.sourceKey : ""
         };
     }
+    function normalizeBrowserFilters(filters) {
+        const source = filters && typeof filters === "object" ? filters : {};
+        const normalizeTags = value => {
+            if (!Array.isArray(value)) return [];
+            return Array.from(new Set(value.filter(tag => typeof tag === "string" && tag.trim())
+                .map(tag => tag.trim()))).sort((a, b) => a.localeCompare(b));
+        };
+        const sourceKind = ["workshop", "shared"].includes(source.sourceKind)
+            ? source.sourceKind : "";
+        return {
+            query: typeof source.query === "string" ? source.query : "",
+            includedTags: normalizeTags(source.includedTags),
+            excludedTags: normalizeTags(source.excludedTags),
+            sourceKind
+        };
+    }
+    function acceptBrowserFilters(filters) {
+        const next = normalizeBrowserFilters(filters);
+        _activeBrowserFilters = next;
+        listModelAdapter().browserFilters = next;
+        browserFiltersSelected(next);
+    }
+    function updateBrowserFilters(key, value) {
+        const next = Object.assign({}, _activeBrowserFilters);
+        next[key] = value;
+        acceptBrowserFilters(next);
+    }
+    function updateBrowserTagList(key, tag, include) {
+        const tags = _activeBrowserFilters[key].slice();
+        const index = tags.indexOf(tag);
+        if (include && index < 0) tags.push(tag);
+        else if (!include && index >= 0) tags.splice(index, 1);
+        updateBrowserFilters(key, tags);
+    }
+    function setLegacyFilter(index, checked) {
+        const values = legacyFilterValues.slice();
+        const item = Common.filterModel.get(index);
+        values[index] = item.type === "tags" ? (checked ? 0 : 1) : Number(checked);
+        cfg_FilterStr = Utils.intArrayToStr(values);
+    }
+    function resetFilters() {
+        const defaults = Common.filterModel.map(item => item.def);
+        cfg_FilterStr = Utils.intArrayToStr(defaults);
+        acceptBrowserFilters({query: "", includedTags: [], excludedTags: [], sourceKind: ""});
+        acceptBrowseScope("allDownloaded", [], true);
+        activationStatus = "";
+    }
     function acceptBrowseScope(mode, accountKeys, includeSharedProjects) {
         const next = normalizeBrowseScope({mode, accountKeys, includeSharedProjects});
         _activeBrowseScope = next;
@@ -143,6 +205,24 @@ RowLayout {
         manualWallpaperSelected(selected);
     }
 
+    function activateWallpaper(model) {
+        const selected = Object.assign({}, model || {});
+        if (typeof immediateApplyHandler !== "function") {
+            activationStatus = qsTr("Immediate Apply is unavailable here. Use Apply to save this selection.");
+            return false;
+        }
+        const result = immediateApplyHandler(selected);
+        const succeeded = result === true || (result && result.applied === true);
+        if (succeeded) {
+            pendingManualSelection = null;
+            activationStatus = qsTr("Wallpaper applied. Other edits are still waiting for Apply.");
+            return true;
+        }
+        activationStatus = result && typeof result.message === "string" && result.message
+            ? result.message : qsTr("Immediate Apply failed. Use Apply to save this selection.");
+        return false;
+    }
+
     function listEntryAt(list, index) {
         const count = list && typeof list.length === "number" ? list.length
             : list && typeof list.count === "number" ? list.count : 0;
@@ -160,8 +240,15 @@ RowLayout {
         _activeBrowseScope = normalizeBrowseScope(browseScope);
         listModelAdapter().browseScope = _activeBrowseScope;
     }
+    onBrowserFiltersChanged: {
+        _activeBrowserFilters = normalizeBrowserFilters(browserFilters);
+        listModelAdapter().browserFilters = _activeBrowserFilters;
+    }
     onFollowSelectionChanged: _activeFollowSelection = normalizeFollowSelection(followSelection)
-    Component.onCompleted: listModelAdapter().browseScope = _activeBrowseScope
+    Component.onCompleted: {
+        listModelAdapter().browseScope = _activeBrowseScope;
+        listModelAdapter().browserFilters = _activeBrowserFilters;
+    }
 
     // Наследуем тему от родителя
     Kirigami.Theme.inherit: true
@@ -169,13 +256,215 @@ RowLayout {
     function saveConfig() {
         right_opts.save_changes();
     }
-    
+
+    Timer {
+        id: browserQueryDebounce
+        interval: 180
+        repeat: false
+        onTriggered: page.updateBrowserFilters("query", browserQueryField.text)
+    }
+
+    Control {
+        id: browserFilterSidebar
+        objectName: "browserFilterSidebar"
+        QQC15.SplitView.preferredWidth: page.narrowLayout ? page.width : page.filterPaneWidth
+        QQC15.SplitView.minimumWidth: page.narrowLayout ? 0 : 200
+        QQC15.SplitView.maximumWidth: page.narrowLayout ? page.width : page.filterPaneWidth
+        QQC15.SplitView.fillWidth: page.narrowLayout
+        Layout.fillHeight: true
+        visible: page.narrowLayout ? page.filtersView : page.filterSidebarExpanded
+        topPadding: 6
+        bottomPadding: 6
+        leftPadding: 8
+        rightPadding: 8
+
+        contentItem: ScrollView {
+            id: browserFilterScroll
+            clip: true
+            contentWidth: availableWidth
+            QQC15.ScrollBar.vertical.policy: QQC15.ScrollBar.AsNeeded
+
+            ColumnLayout {
+                width: browserFilterScroll.availableWidth
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Filters")
+                        font.bold: true
+                    }
+                    Button {
+                        objectName: "resetBrowserFiltersButton"
+                        text: qsTr("Reset")
+                        onClicked: page.resetFilters()
+                    }
+                }
+                Button {
+                    objectName: "backFromFiltersButton"
+                    visible: page.narrowLayout
+                    Layout.fillWidth: true
+                    text: qsTr("Back to wallpapers")
+                    icon.name: "go-previous"
+                    onClicked: page.filtersView = false
+                }
+
+                Label { text: qsTr("Search"); font.bold: true }
+                TextField {
+                    id: browserQueryField
+                    objectName: "browserQueryField"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Name, tags, Workshop ID")
+                    text: page._activeBrowserFilters.query
+                    onTextEdited: browserQueryDebounce.restart()
+                    onAccepted: {
+                        browserQueryDebounce.stop();
+                        page.updateBrowserFilters("query", text);
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Search wallpaper names, tags, and Workshop IDs")
+                }
+
+                Label { text: qsTr("Source"); font.bold: true }
+                ComboBox {
+                    objectName: "browserSourceKindCombo"
+                    Layout.fillWidth: true
+                    model: [
+                        {text: qsTr("All sources"), value: ""},
+                        {text: qsTr("Workshop"), value: "workshop"},
+                        {text: qsTr("Local and shared"), value: "shared"}
+                    ]
+                    textRole: "text"
+                    currentIndex: Math.max(0, model.findIndex(item =>
+                        item.value === page._activeBrowserFilters.sourceKind))
+                    onActivated: index => page.updateBrowserFilters("sourceKind", model[index].value)
+                }
+
+                Label { text: qsTr("Tags"); font.bold: true }
+                ComboBox {
+                    id: browserTagChoice
+                    objectName: "browserTagChoice"
+                    Layout.fillWidth: true
+                    model: page.browserTagCatalog
+                    displayText: currentIndex < 0 ? qsTr("Choose a tag") : currentText
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        objectName: "includeBrowserTagButton"
+                        Layout.fillWidth: true
+                        text: qsTr("Require")
+                        enabled: browserTagChoice.currentIndex >= 0
+                        onClicked: page.updateBrowserTagList("includedTags",
+                            browserTagChoice.currentText, true)
+                    }
+                    Button {
+                        objectName: "excludeBrowserTagButton"
+                        Layout.fillWidth: true
+                        text: qsTr("Exclude")
+                        enabled: browserTagChoice.currentIndex >= 0
+                        onClicked: page.updateBrowserTagList("excludedTags",
+                            browserTagChoice.currentText, true)
+                    }
+                }
+                Label {
+                    visible: page._activeBrowserFilters.includedTags.length > 0
+                    text: qsTr("Must include all")
+                    opacity: 0.75
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    visible: page._activeBrowserFilters.includedTags.length > 0
+                    Repeater {
+                        model: page._activeBrowserFilters.includedTags
+                        delegate: ToolButton {
+                            required property string modelData
+                            text: `+ ${modelData} ×`
+                            onClicked: page.updateBrowserTagList("includedTags", modelData, false)
+                        }
+                    }
+                }
+                Label {
+                    visible: page._activeBrowserFilters.excludedTags.length > 0
+                    text: qsTr("Exclude any")
+                    opacity: 0.75
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    visible: page._activeBrowserFilters.excludedTags.length > 0
+                    Repeater {
+                        model: page._activeBrowserFilters.excludedTags
+                        delegate: ToolButton {
+                            required property string modelData
+                            text: `− ${modelData} ×`
+                            onClicked: page.updateBrowserTagList("excludedTags", modelData, false)
+                        }
+                    }
+                }
+
+                Label {
+                    text: qsTr("Type, rating, favorites, playlists")
+                    font.bold: true
+                    Layout.topMargin: 4
+                }
+                Repeater {
+                    model: Common.filterModel
+                    delegate: ColumnLayout {
+                        required property int index
+                        readonly property var entry: Common.filterModel.get(index)
+                        Layout.fillWidth: true
+                        Label {
+                            visible: entry.type === "_nocheck"
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            text: entry.text
+                            font.bold: true
+                        }
+                        CheckBox {
+                            objectName: `legacyBrowserFilter-${index}`
+                            visible: entry.type !== "_nocheck"
+                            Layout.fillWidth: true
+                            text: entry.type === "tags" ? qsTr("Exclude %1").arg(entry.key)
+                                : entry.type === "favor" ? qsTr("Favorites only") : entry.text
+                            checked: entry.type === "tags"
+                                ? Number(page.legacyFilterValues[index]) === 0
+                                : Number(page.legacyFilterValues[index]) !== 0
+                            onToggled: page.setLegacyFilter(index, checked)
+                        }
+                    }
+                }
+
+                ToolButton {
+                    objectName: "accountScopeDisclosureButton"
+                    Layout.fillWidth: true
+                    text: page.accountScopeExpanded ? qsTr("Hide account scope") : qsTr("Account scope")
+                    icon.name: page.accountScopeExpanded ? "arrow-up" : "arrow-down"
+                    onClicked: page.accountScopeExpanded = !page.accountScopeExpanded
+                }
+                SteamAccountPicker {
+                    objectName: "browseAccountPicker"
+                    visible: page.accountScopeExpanded && page.accountCatalogAvailable
+                    catalog: page.accountCatalogSnapshot
+                    mode: page._activeBrowseScope.mode
+                    accountKeys: page._activeBrowseScope.accountKeys
+                    includeSharedProjects: page._activeBrowseScope.includeSharedProjects
+                    freshSetup: page.freshAccountSetup
+                    onBrowseScopeSelected: (mode, accountKeys, includeSharedProjects) =>
+                        page.acceptBrowseScope(mode, accountKeys, includeSharedProjects)
+                }
+            }
+        }
+    }
+
     Control {
         id: left_content
         objectName: "wallpaperBrowseView"
+        QQC15.SplitView.minimumWidth: 320
+        QQC15.SplitView.fillWidth: true
         Layout.fillWidth: true
         Layout.fillHeight: true
-        visible: !page.narrowLayout || !page.detailsView
+        visible: !page.narrowLayout || (!page.detailsView && !page.filtersView)
         topPadding: 8
         leftPadding: 0
         rightPadding: 0
@@ -235,18 +524,6 @@ RowLayout {
                     onBrowseRequested: wpDialog.open()
                 }
 
-                SteamAccountPicker {
-                    objectName: "browseAccountPicker"
-                    visible: page.accountCatalogAvailable
-                    catalog: page.accountCatalogSnapshot
-                    mode: page._activeBrowseScope.mode
-                    accountKeys: page._activeBrowseScope.accountKeys
-                    includeSharedProjects: page._activeBrowseScope.includeSharedProjects
-                    freshSetup: page.freshAccountSetup
-                    onBrowseScopeSelected: (mode, accountKeys, includeSharedProjects) =>
-                        page.acceptBrowseScope(mode, accountKeys, includeSharedProjects)
-                }
-
                 FollowSourcePicker {
                     objectName: "followSourcePicker"
                     visible: page.useFollowSourcePicker
@@ -299,11 +576,32 @@ RowLayout {
                     : qsTr("Use this wallpaper and stop following on Apply")
                 onClicked: page.applyPendingManualSelection()
             }
+            Label {
+                objectName: "wallpaperActivationStatus"
+                visible: page.activationStatus.length > 0
+                Layout.fillWidth: true
+                text: page.activationStatus
+                wrapMode: Text.WordWrap
+                opacity: 0.85
+            }
 
             RowLayout {
                 id: infoRow
                 Layout.alignment: Qt.AlignHCenter
                 spacing: 5
+
+                ToolButton {
+                    objectName: "toggleBrowserFiltersButton"
+                    visible: !page.narrowLayout || (!page.detailsView && !page.filtersView)
+                    text: qsTr("Filters")
+                    icon.name: page.filterSidebarExpanded ? "sidebar-collapse-left" : "view-filter"
+                    onClicked: {
+                        if (page.narrowLayout)
+                            page.filtersView = true;
+                        else
+                            page.filterSidebarExpanded = !page.filterSidebarExpanded;
+                    }
+                }
 
                 Kirigami.ActionToolBar {
                     Layout.fillWidth: true
@@ -313,23 +611,6 @@ RowLayout {
                     ActionGroup {
                         id: group_sort
                         exclusive: true
-                    }
-                    Component {
-                        id: comp_action_filter
-                        Kirigami.Action {
-                            property int act_index;
-
-                            checkable: false
-                            checked: action_cb_filter.modelValues[act_index]
-                            onTriggered: {
-                                if(!checkable) return;
-                                const modelValues = action_cb_filter.modelValues;
-                                modelValues[act_index] = Number(!modelValues[act_index]);
-                                cfg_FilterStr = Utils.intArrayToStr(modelValues);
-                            }
-
-                            Component.onCompleted: comp_action_sort.Component.destruction.connect(this.destroy)
-                        }
                     }
                     Component {
                         id: comp_action_sort
@@ -348,20 +629,6 @@ RowLayout {
                     }
 
                     actions: [
-                        Kirigami.Action {
-                            id: action_cb_filter
-                            text: 'Filter'
-                            icon.name: "view-filter"
-                            property int currentIndex
-                            readonly property var model: Common.filterModel
-                            readonly property var modelValues: Common.filterModel.getValueArray(cfg_FilterStr)
-
-                            children: model.map((el, index) => comp_action_filter.createObject(null, {
-                                text: el.text, 
-                                act_index: index,
-                                checkable: el.type !== '_nocheck'
-                            }))
-                        },
                         Kirigami.Action {
                             id: action_cb_sort
                             text: model[currentIndex].short
@@ -400,6 +667,13 @@ RowLayout {
                     text: qsTr("Details")
                     icon.name: "document-properties"
                     onClicked: page.detailsView = true
+                }
+                ToolButton {
+                    objectName: "toggleWallpaperDetailsButton"
+                    visible: !page.narrowLayout
+                    text: page.inspectorExpanded ? qsTr("Hide details") : qsTr("Show details")
+                    icon.name: "document-properties"
+                    onClicked: page.inspectorExpanded = !page.inspectorExpanded
                 }
             }
 
@@ -456,8 +730,11 @@ RowLayout {
                     visible: view.count > 0
 
                     // from org.kde.image
-                    view.implicitCellWidth: Screen.width / 10 + Kirigami.Units.smallSpacing * 2
-                    view.implicitCellHeight: Screen.height / 10 + Kirigami.Units.smallSpacing * 2 + Kirigami.Units.gridUnit * 3
+                    view.implicitCellWidth: Math.max(160, Math.min(235, left_content.width / 4.2))
+                    // Match KCM GridDelegate's landscape thumbnail plus its
+                    // fixed label/actions allowance instead of a near-square tile.
+                    view.implicitCellHeight: view.implicitCellWidth / 1.6
+                        + Kirigami.Units.gridUnit * 3
                     view.model: defaultModel
                     view.delegate: KCM.GridDelegate {
                         // path is file://, safe to concat with '/'
@@ -502,6 +779,7 @@ RowLayout {
                             page.selectWallpaper(model);
                             view.currentIndex = index;
                         }
+                        onDoubleClicked: page.activateWallpaper(model)
                     }
 
      
@@ -561,19 +839,21 @@ RowLayout {
     Control {
         id: right_content
         objectName: "wallpaperDetailsView"
-        Layout.preferredWidth: page.narrowLayout ? parent.width : parent.width / 3
-        Layout.fillWidth: page.narrowLayout
+        QQC15.SplitView.preferredWidth: page.narrowLayout ? page.width : page.inspectorPreferredWidth
+        QQC15.SplitView.minimumWidth: page.narrowLayout ? 0 : 220
+        QQC15.SplitView.maximumWidth: page.narrowLayout ? page.width : 440
+        QQC15.SplitView.fillWidth: page.narrowLayout
         Layout.fillHeight: true
 
-        readonly property int image_size: 300
-        readonly property int content_margin: 16
+        readonly property int image_size: Math.max(120, Math.min(200, width - 48))
+        readonly property int content_margin: 12
         property var wpmodel: { 
             return picViewLoader.item.currentModel
             ? Common.wpitemFromQtObject(picViewLoader.item.currentModel)
             : Common.wpitem_template;
         }
 
-        visible: page.narrowLayout ? page.detailsView : true
+        visible: page.narrowLayout ? page.detailsView : page.inspectorExpanded
 
         topPadding: 0
         leftPadding: 0

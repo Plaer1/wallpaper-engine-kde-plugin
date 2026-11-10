@@ -451,7 +451,7 @@ TestCase {
         compare(JSON.stringify(client.requests[0].args), "{}");
     }
 
-    function test_trayMenuHasThreeActionsAndPlaybackAlwaysTargetsAllScreens() {
+    function test_trayMenuHasFourActionsAndPlaybackAlwaysTargetsAllScreens() {
         const client = createTemporaryObject(clientComponent, testCase);
         const controller = readyController(client, [target("left", false), target("right", false)]);
         controller.scopeMode = "selected";
@@ -466,22 +466,28 @@ TestCase {
         popup.actions = actionSet.popupActions;
         tryVerify(() => popup.implicitHeight > 0);
 
-        compare(actionSet.contextualActions.length, 2); // Plasma appends Configure Controls.
-        compare(actionSet.popupActions.length, 3);
+        compare(actionSet.contextualActions.length, 3); // Plasma appends Configure Controls.
+        compare(actionSet.popupActions.length, 4);
+        compare(actionSet.contextualActions[0].text, "Launch Wallpaper Engine");
+        compare(actionSet.contextualActions[1].text, "Pause");
+        compare(actionSet.contextualActions[2].text, "Desktop and Wallpaper Settings");
+        verify(actionSet.contextualActions.indexOf(configureAction) < 0);
         verify(popup.implicitHeight >= 60 && popup.implicitHeight <= 120,
             `Expected compact implicit height, got ${popup.implicitHeight}`);
         verify(popup.height >= 60 && popup.height <= 120,
             `Expected compact outer popup height in a 700px host, got ${popup.height}`);
-        compare(findChild(popup, "tray-popup-action-0").text, "Pause");
-        compare(findChild(popup, "tray-popup-action-1").text, configureAction.text);
-        compare(findChild(popup, "tray-popup-action-2").text, "Desktop and Wallpaper Settings");
+        compare(findChild(popup, "tray-popup-action-0").text, "Launch Wallpaper Engine");
+        compare(findChild(popup, "tray-popup-action-1").text, "Pause");
+        compare(findChild(popup, "tray-popup-action-2").text, configureAction.text);
+        compare(findChild(popup, "tray-popup-action-3").text, "Desktop and Wallpaper Settings");
         const firstButton = findChild(popup, "tray-popup-action-0");
         const secondButton = findChild(popup, "tray-popup-action-1");
         const thirdButton = findChild(popup, "tray-popup-action-2");
         verify(secondButton.y - (firstButton.y + firstButton.height) <= 8);
         verify(thirdButton.y - (secondButton.y + secondButton.height) <= 8);
         verify(findChild(popup, "tray-popup-action-0").enabled);
-        actionSet.popupActions[0].trigger();
+        verify(findChild(popup, "tray-popup-action-1").enabled);
+        actionSet.popupActions[1].trigger();
         tryCompare(controller, "lastCommandText", "Command accepted; waiting for completion");
         compare(client.requests[0].scope, "targets");
         compare(client.requests[0].targetIds, ["left", "right"]);
@@ -495,15 +501,15 @@ TestCase {
         controller.scopeMode = "all";
         controller.snapshot = snapshot([pausedLeft, pausedRight]);
         compare(actionSet.playbackActionId, "resume");
-        compare(actionSet.popupActions[0].text, "Resume");
-        actionSet.popupActions[0].trigger();
+        compare(actionSet.popupActions[1].text, "Resume");
+        actionSet.popupActions[1].trigger();
         tryVerify(() => client.requests.length === 2);
         compare(client.requests[1].scope, "targets");
         compare(client.requests[1].targetIds, ["left", "right"]);
         compare(client.requests[1].args.mode, "automatic");
-        actionSet.popupActions[1].trigger();
-        compare(configureAction.triggerCount, 1);
         actionSet.popupActions[2].trigger();
+        compare(configureAction.triggerCount, 1);
+        actionSet.popupActions[3].trigger();
         compare(desktopLauncher.openCount, 1);
     }
 
@@ -520,8 +526,8 @@ TestCase {
         const actionSet = createTemporaryObject(actionSetComponent, testCase, {controller});
 
         compare(actionSet.playbackActionId, "playDespiteWindows");
-        compare(actionSet.popupActions[0].text, "Resume");
-        verify(actionSet.popupActions[0].enabled);
+        compare(actionSet.popupActions[1].text, "Resume");
+        verify(actionSet.popupActions[1].enabled);
         actionSet.runAllPlaybackAction();
         tryVerify(() => client.requests.length === 1);
         compare(client.requests[0].args.mode, "playDespiteWindows");
@@ -548,7 +554,7 @@ TestCase {
         compare(client.requests[2].args.mode, "paused");
     }
 
-    function test_hardPauseBlocksResumeButMixedDisplaysStillAllowPause() {
+    function test_fullscreenResumeBypassesButOtherHardReasonsBlockAndMixedAllowsPause() {
         const client = createTemporaryObject(clientComponent, testCase);
         const left = target("left", false);
         const right = target("right", false);
@@ -559,22 +565,42 @@ TestCase {
         const controller = readyController(client, [left, right]);
         const actionSet = createTemporaryObject(actionSetComponent, testCase, {controller});
 
-        compare(actionSet.playbackActionId, "resume");
-        compare(actionSet.popupActions[0].text, "Resume");
-        verify(!actionSet.popupActions[0].enabled);
-        verify(actionSet.popupActions[0].stateReason.includes("fullscreen"));
-        compare(actionSet.runAllPlaybackAction(), "");
-        compare(client.requests.length, 0);
-
-        right.effectivePlayback = "playing";
-        right.pauseReasons = [];
-        controller.snapshot = snapshot([left, right]);
-        compare(actionSet.playbackActionId, "pause");
-        verify(actionSet.popupActions[0].enabled);
+        compare(actionSet.playbackActionId, "playDespiteWindows");
+        compare(actionSet.popupActions[1].text, "Resume");
+        verify(actionSet.popupActions[1].enabled);
         actionSet.runAllPlaybackAction();
         tryVerify(() => client.requests.length === 1);
-        compare(client.requests[0].args.mode, "paused");
+        compare(client.requests[0].args.mode, "playDespiteWindows");
         compare(client.requests[0].targetIds, ["left", "right"]);
+
+        left.desiredPlayback = "paused";
+        right.desiredPlayback = "paused";
+        left.pauseReasons = ["manual", "fullscreen"];
+        right.pauseReasons = ["manual", "fullscreen"];
+        controller.snapshot = snapshot([left, right]);
+        compare(actionSet.playbackActionId, "playDespiteWindows");
+        actionSet.runAllPlaybackAction();
+        tryVerify(() => client.requests.length === 2);
+        compare(client.requests[1].args.mode, "playDespiteWindows");
+
+        left.pauseReasons = ["fullscreen", "battery"];
+        controller.snapshot = snapshot([left, right]);
+        verify(!actionSet.popupActions[1].enabled);
+        verify(actionSet.popupActions[1].stateReason.includes("battery"));
+        compare(actionSet.runAllPlaybackAction(), "");
+        compare(client.requests.length, 2);
+
+        left.pauseReasons = ["fullscreen"];
+        right.effectivePlayback = "playing";
+        right.pauseReasons = [];
+        right.desiredPlayback = "automatic";
+        controller.snapshot = snapshot([left, right]);
+        compare(actionSet.playbackActionId, "pause");
+        verify(actionSet.popupActions[1].enabled);
+        actionSet.runAllPlaybackAction();
+        tryVerify(() => client.requests.length === 3);
+        compare(client.requests[2].args.mode, "paused");
+        compare(client.requests[2].targetIds, ["left", "right"]);
     }
 
     function test_mixedWindowCoveredAndPlayingTargetsPauseTogether() {
@@ -603,15 +629,25 @@ TestCase {
             controller, appletConfigureAction: configureAction, desktopSettingsInvoker: desktopLauncher
         });
 
-        compare(actionSet.popupActions.length, 3);
-        verify(!actionSet.popupActions[0].enabled);
-        verify(actionSet.popupActions[1].enabled);
+        const openedUris = [];
+        actionSet.externalUrlOpener = function(uri) {
+            openedUris.push(uri);
+            return true;
+        };
+        compare(actionSet.popupActions.length, 4);
+        verify(actionSet.popupActions[0].enabled);
+        verify(!actionSet.popupActions[1].enabled);
         verify(actionSet.popupActions[2].enabled);
-        actionSet.popupActions[2].trigger();
+        verify(actionSet.popupActions[3].enabled);
+        actionSet.popupActions[3].trigger();
         compare(desktopLauncher.openCount, 1);
+        actionSet.popupActions[0].trigger();
+        compare(openedUris, ["steam://rungameid/431960"]);
+        compare(actionSet.contextualActions.length, 3); // Plasma adds Configure once after these.
+        compare(actionSet.contextualActions[0].text, "Launch Wallpaper Engine");
     }
 
-    function test_nativeTrayMenuStaysCompactAndHasThreeActions() {
+    function test_nativeTrayMenuStaysCompactAndHasFourActions() {
         const controller = createTemporaryObject(controllerComponent, testCase, {
             runtimeStatus: "absent"
         });
@@ -624,19 +660,21 @@ TestCase {
             actions: actionSet.popupActions
         });
 
-        tryVerify(() => menu.count === 3 && menu.implicitHeight > 0);
+        tryVerify(() => menu.count === 4 && menu.implicitHeight > 0);
         compare(menu.popupType, Popup.Window);
-        compare(menu.itemAt(0).text, "Pause");
-        compare(menu.itemAt(1).text, configureAction.text);
-        compare(menu.itemAt(2).text, "Desktop and Wallpaper Settings");
+        compare(menu.itemAt(0).text, "Launch Wallpaper Engine");
+        compare(menu.itemAt(1).text, "Pause");
+        compare(menu.itemAt(2).text, configureAction.text);
+        compare(menu.itemAt(3).text, "Desktop and Wallpaper Settings");
         verify(menu.implicitHeight <= 160,
             `Expected a compact window menu, got ${menu.implicitHeight}px`);
         verify(menu.implicitWidth <= 320,
             `Expected a compact menu width, got ${menu.implicitWidth}px`);
-        verify(!menu.itemAt(0).enabled);
-        verify(menu.itemAt(1).enabled);
+        verify(menu.itemAt(0).enabled);
+        verify(!menu.itemAt(1).enabled);
         verify(menu.itemAt(2).enabled);
-        menu.itemAt(2).triggered();
+        verify(menu.itemAt(3).enabled);
+        menu.itemAt(3).triggered();
         compare(desktopLauncher.openCount, 1);
     }
 

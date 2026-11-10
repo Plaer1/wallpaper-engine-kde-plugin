@@ -42,6 +42,7 @@ ColumnLayout {
     property string cfg_WallpaperWorkShopId
     property string cfg_WallpaperSource
     property string cfg_FilterStr
+    property string cfg_BrowserFilters: "{}"
     property int    cfg_SortMode
 
     property alias  cfg_Fps:                 settingPage.cfg_Fps
@@ -171,6 +172,26 @@ ColumnLayout {
             };
         } catch (reason) { return defaults; }
     }
+
+    function normalizeBrowserFilters(value) {
+        const source = value && typeof value === "object" ? value : {};
+        const normalizeTags = tags => Array.isArray(tags)
+            ? Array.from(new Set(tags.filter(tag => typeof tag === "string" && tag.trim())
+                .map(tag => tag.trim()))).sort((a, b) => a.localeCompare(b)) : [];
+        return {
+            query: typeof source.query === "string" ? source.query : "",
+            includedTags: normalizeTags(source.includedTags),
+            excludedTags: normalizeTags(source.excludedTags),
+            sourceKind: ["workshop", "shared"].includes(source.sourceKind) ? source.sourceKind : ""
+        };
+    }
+    function configuredBrowserFilters() {
+        if (typeof cfg_BrowserFilters !== "string" || !cfg_BrowserFilters.trim())
+            return normalizeBrowserFilters({});
+        try { return normalizeBrowserFilters(JSON.parse(cfg_BrowserFilters)); }
+        catch (reason) { return normalizeBrowserFilters({}); }
+    }
+    readonly property var browserFiltersBinding: configuredBrowserFilters()
 
     // Signal boundaries may expose JavaScript arrays as QVariantList values.
     // Accept either representation, while keeping malformed scalar input empty.
@@ -503,6 +524,7 @@ ColumnLayout {
             batch["SwitchTimer"] = cfg_SwitchTimer;
             batch["NoRandomWhilePaused"] = cfg_NoRandomWhilePaused;
             batch["FilterStr"] = cfg_FilterStr;
+            batch["BrowserFilters"] = cfg_BrowserFilters;
             batch["SortMode"] = cfg_SortMode;
             batch["SpanScreens"] = cfg_SpanScreens;
             // Only sync the wallpaper itself if the user actually changed the
@@ -519,8 +541,95 @@ ColumnLayout {
         syncBus.broadcastGlobalChanged();
     }
 
+    function applyWallpaperImmediately(wallpaper) {
+        const host = configDialog;
+        const hostConfig = host && host.wallpaperConfiguration;
+        if (!hostConfig || typeof host.applyWallpaper !== "function")
+            return {applied: false, message: qsTr("Immediate Apply is unavailable here. Use Apply to save this selection.")};
+
+        const selected = Object.assign({}, wallpaper || {});
+        const source = Common.packWallpaperSource(selected);
+        const workshopId = String(selected.workshopid || "");
+        const previous = {
+            source: hostConfig.WallpaperSource,
+            workshopId: hostConfig.WallpaperWorkShopId,
+            follow: hostConfig.FollowWallpaperEngine,
+            draftSource: cfg_WallpaperSource,
+            draftWorkshopId: cfg_WallpaperWorkShopId,
+            draftFollow: followEditorValues.FollowWallpaperEngine,
+            sharedValues: globalCfg.all(),
+            liveGlobalMode: Boolean(globalCfg.enabled)
+        };
+        let sharedWriteVerified = false;
+
+        stageFollowField("FollowWallpaperEngine", false);
+        cfg_WallpaperSource = source;
+        cfg_WallpaperWorkShopId = workshopId;
+        try {
+            hostConfig.WallpaperSource = source;
+            hostConfig.WallpaperWorkShopId = workshopId;
+            hostConfig.FollowWallpaperEngine = false;
+
+            if (previous.liveGlobalMode) {
+                globalCfg.setBatch({WallpaperSource: source, WallpaperWorkShopId: workshopId});
+                if (String(globalCfg.get("WallpaperSource", "")) !== source
+                    || String(globalCfg.get("WallpaperWorkShopId", "")) !== workshopId) {
+                    // setBatch() has no result value. A mismatched readback can
+                    // mean a busy/rejected patch or a concurrent writer; do not
+                    // overwrite that writer with a speculative rollback.
+                    hostConfig.WallpaperSource = previous.source;
+                    hostConfig.WallpaperWorkShopId = previous.workshopId;
+                    hostConfig.FollowWallpaperEngine = previous.follow;
+                    cfg_WallpaperSource = previous.draftSource;
+                    cfg_WallpaperWorkShopId = previous.draftWorkshopId;
+                    stageFollowField("FollowWallpaperEngine", Boolean(previous.draftFollow));
+                    const currentShared = globalCfg.all();
+                    if (currentShared.WallpaperSource !== previous.sharedValues.WallpaperSource
+                        || currentShared.WallpaperWorkShopId !== previous.sharedValues.WallpaperWorkShopId)
+                        syncBus.broadcastGlobalChanged();
+                    return {
+                        applied: false,
+                        message: qsTr("Shared selection could not be confirmed. Review the shared wallpaper before retrying.")
+                    };
+                }
+                sharedWriteVerified = true;
+            }
+
+            host.applyWallpaper();
+            initialWallpaperSource = source;
+            initialWallpaperWorkShopId = workshopId;
+            acceptFollowLiveValue("FollowWallpaperEngine", false);
+            if (previous.liveGlobalMode)
+                syncBus.broadcastGlobalChanged();
+            return {applied: true};
+        } catch (reason) {
+            hostConfig.WallpaperSource = previous.source;
+            hostConfig.WallpaperWorkShopId = previous.workshopId;
+            hostConfig.FollowWallpaperEngine = previous.follow;
+            if (previous.liveGlobalMode && sharedWriteVerified) {
+                // A host failure comes after the shared write committed. Keep
+                // that selected pair and report the partial result; GlobalConfig
+                // has no delete operation and a rollback could overwrite a
+                // concurrent edit or restore only half of the pair.
+                syncBus.broadcastGlobalChanged();
+                cfg_WallpaperSource = source;
+                cfg_WallpaperWorkShopId = workshopId;
+                stageFollowField("FollowWallpaperEngine", false);
+                return {
+                    applied: false,
+                    message: qsTr("Shared selection was saved, but the host could not apply it. Review the current wallpaper and retry.")
+                };
+            }
+            cfg_WallpaperSource = previous.draftSource;
+            cfg_WallpaperWorkShopId = previous.draftWorkshopId;
+            stageFollowField("FollowWallpaperEngine", Boolean(previous.draftFollow));
+            return {applied: false, message: qsTr("Immediate Apply failed. Use Apply to save this selection.")};
+        }
+    }
+
     WallpaperListModel {
         id: wpListModel
+        browserFilters: root.browserFiltersBinding
         accountCatalogProvider: steamCatalogProvider
         directoryWatcher: ProjectDirectoryWatcher {
             enabled: wpListModel.enabled
@@ -616,6 +725,9 @@ ColumnLayout {
             followSelection: root.followSelectionBinding
             followEnabled: root.followEditorValues.FollowWallpaperEngine
             followAccount: root.followEditorValues.WallpaperEngineAccount
+            browserFilters: root.browserFiltersBinding
+            browserTagCatalog: wpListModel.browserTagCatalog
+            immediateApplyHandler: wallpaper => root.applyWallpaperImmediately(wallpaper)
             useFollowSourcePicker: Boolean(root.steamAccountsCatalogSnapshot)
             freshAccountSetup: false
             allowIdentifiedCurrent: false
@@ -625,6 +737,9 @@ ColumnLayout {
                     accountKeys: root.normalizedStringList(scope.accountKeys),
                     includeSharedProjects: scope.includeSharedProjects !== false
                 });
+            }
+            onBrowserFiltersSelected: filters => {
+                root.cfg_BrowserFilters = JSON.stringify(root.normalizeBrowserFilters(filters));
             }
             onFollowSourceSelected: binding => {
                 root.stageFollowField("FollowSourceMode", binding.mode || "legacySession");

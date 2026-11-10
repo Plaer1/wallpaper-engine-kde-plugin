@@ -21,6 +21,7 @@ Item {
     Component.onDestruction: root._lifetime.alive = false
     property var globalConfigPath
     property string filterStr: ""
+    property var browserFilters: ({query: "", includedTags: [], excludedTags: [], sourceKind: ""})
     property int sortMode: Common.SortMode.Id
     property bool enabled: true
 
@@ -74,6 +75,7 @@ Item {
     }
 
     property int countNoFilter: 0
+    readonly property var browserTagCatalog: Common.getBrowserTagCatalog(folderWorker.model)
 
     property var playlists: {}
     property var playlistLabels: ({})
@@ -364,10 +366,11 @@ Item {
 
         function loadModel(path, data) {
             this.folderMapModel.set(path, data);
-            this.model = [];
+            const allItems = [];
             this.folderMapModel.forEach((value, key) => {
-                this.model.push(...value);
+                allItems.push(...value);
             });
+            this.model = allItems;
             return filterToList(root.model, root.filterStr, this.model);
         }
         function filterToList(listModel, filterStr, data) {
@@ -383,6 +386,7 @@ Item {
             root.modelStartSync();
             return new Promise((resolve, reject) => {
                 const filter = Common.filterModel.genFilter(filterstr);
+                const browserFilter = Common.createBrowserFilter(root.browserFilters);
                 const model = listModel;
                 data.sort(genSortCmp(sortMode));
                 model.clear();
@@ -398,7 +402,7 @@ Item {
                     el.subscriptionAccountKeys = accountKeys.join(",");
                     el.subscriptionCacheKeys = cacheKeys.join(",");
                     el.isSubscribed = accountKeys.length > 0;
-                    if(matchesBrowseScope(el, accountKeys) && filter(el))
+                    if(matchesBrowseScope(el, accountKeys) && filter(el) && browserFilter(el))
                         model.append(el);
                 });
                 resolve();
@@ -519,6 +523,12 @@ Item {
         componentReady = true;
         refreshMembershipProjection(false);
         this.filterStrChanged.connect(function() {
+            if(root.enabled) {
+                return folderWorker.filterToList(root.model, root.filterStr, folderWorker.model)
+            }
+            return Promise.resolve();
+        });
+        this.browserFiltersChanged.connect(function() {
             if(root.enabled) {
                 return folderWorker.filterToList(root.model, root.filterStr, folderWorker.model)
             }

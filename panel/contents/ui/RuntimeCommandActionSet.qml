@@ -11,16 +11,22 @@ Item {
     property var controller: null
     property var appletConfigureAction: null
     property var desktopSettingsInvoker: null
+    // Tests may intercept the URI; production delegates to the desktop's
+    // registered steam:// handler only after the user activates the action.
+    property var externalUrlOpener: null
+    readonly property string wallpaperEngineUri: "steam://rungameid/431960"
     readonly property var actions: [pauseAction, resumeAction, playDespiteWindowsAction,
         muteAction, followAction, nextAction, reloadAction, sizingOffAction,
         sizingFillAction, sizingStretchAction, configureAction]
     readonly property var playbackState: resolvePlaybackAction()
     readonly property string playbackActionId: playbackState ? playbackState.actionId : "pause"
     // Preserve the full action set for the expanded runtime controls and its
-    // compatibility tests. The short tray menu exposes only these two custom
-    // actions; Plasma appends the applet's built-in Configure action itself.
-    readonly property var contextualActions: [playbackMenuAction, desktopSettingsAction]
-    readonly property var popupActions: [playbackMenuAction, appletConfigureAction, desktopSettingsAction]
+    // compatibility tests. Plasma appends the applet's built-in Configure
+    // action itself; these are the three custom right-click actions.
+    readonly property var contextualActions: [launchWallpaperEngineAction,
+        playbackMenuAction, desktopSettingsAction]
+    readonly property var popupActions: [launchWallpaperEngineAction, playbackMenuAction,
+        appletConfigureAction, desktopSettingsAction]
         .filter(action => action !== null)
 
     function runAllPlaybackAction() {
@@ -41,7 +47,7 @@ Item {
     }
 
     function hardPauseReason(targets) {
-        const hardReasons = ["fullscreen", "battery", "gameMode", "sleep", "inactiveSession"];
+        const hardReasons = ["battery", "gameMode", "sleep", "inactiveSession"];
         for (let reasonIndex = 0; reasonIndex < hardReasons.length; ++reasonIndex) {
             const reason = hardReasons[reasonIndex];
             if (targets.some(target => hasPauseReason(target, reason))) return reason;
@@ -51,7 +57,6 @@ Item {
 
     function hardPauseMessage(reason) {
         switch (reason) {
-        case "fullscreen": return qsTr("Resume is unavailable while fullscreen apps are open");
         case "battery": return qsTr("Resume is unavailable while the battery pause is active");
         case "gameMode": return qsTr("Resume is unavailable while game mode is active");
         case "sleep": return qsTr("Resume is unavailable while the session is sleeping");
@@ -79,8 +84,9 @@ Item {
                 text: qsTr("Resume")};
         }
 
-        const hasWindowPause = targets.some(target => hasPauseReason(target, "window"));
-        const actionId = hasWindowPause ? "playDespiteWindows" : "resume";
+        const hasBypassablePause = targets.some(target => hasPauseReason(target, "window")
+            || hasPauseReason(target, "fullscreen"));
+        const actionId = hasBypassablePause ? "playDespiteWindows" : "resume";
         return Object.assign({actionId}, controller.actionInfo(actionId));
     }
 
@@ -223,6 +229,18 @@ Item {
         onTriggered: {
             if (root.desktopSettingsInvoker)
                 root.desktopSettingsInvoker.open();
+        }
+    }
+
+    PlasmaCore.Action {
+        id: launchWallpaperEngineAction
+        text: qsTr("Launch Wallpaper Engine")
+        enabled: true
+        onTriggered: {
+            if (root.externalUrlOpener)
+                root.externalUrlOpener(root.wallpaperEngineUri);
+            else
+                Qt.openUrlExternally(root.wallpaperEngineUri);
         }
     }
 }

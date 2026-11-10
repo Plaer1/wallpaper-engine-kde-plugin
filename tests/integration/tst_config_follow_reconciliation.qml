@@ -75,10 +75,31 @@ TestCase {
         id: signalSpyComponent
         SignalSpy { }
     }
+    Component {
+        id: activationHostComponent
+        QtObject {
+            property var wallpaperConfiguration: ({
+                WallpaperSource: "host-old",
+                WallpaperWorkShopId: "host-old-id",
+                FollowWallpaperEngine: true
+            })
+            property int applyCount: 0
+            property var appliedSnapshot: null
+            function applyWallpaper() {
+                applyCount++;
+                appliedSnapshot = Object.assign({}, wallpaperConfiguration);
+            }
+        }
+    }
 
     function init() {
         fakeMap = createTemporaryObject(mapComponent, testCase);
         verify(fakeMap);
+        sharedGlobalConfig.enabled = false;
+        sharedGlobalConfig.setBatch({
+            WallpaperSource: "", WallpaperWorkShopId: "",
+            WindowPauseMode: 6, WindowResumeDelay: 300
+        });
     }
 
     function findMethodTarget(object, methodName, visited) {
@@ -147,6 +168,99 @@ TestCase {
 
     function hostCopyValues() {
         return fakeMap.snapshot();
+    }
+
+    function test_immediateBrowserActivationUsesHostMapAndLiveSharedMode() {
+        sharedGlobalConfig.enabled = true;
+        sharedGlobalConfig.setBatch({WallpaperSource: "shared-old", WallpaperWorkShopId: "old-id"});
+
+        const host = createTemporaryObject(activationHostComponent, testCase);
+        verify(host && host.wallpaperConfiguration);
+        const config = createActualConfig({
+            configDialog: host,
+            wallpaperConfiguration: fakeMap,
+            cfg_GlobalMode: false, // Pending checkbox differs from the live shared mode.
+            cfg_FollowWallpaperEngine: true,
+            cfg_WallpaperEngineAccount: "steamuser",
+            cfg_WallpaperSource: "draft-old",
+            cfg_WallpaperWorkShopId: "draft-old-id",
+            cfg_Fps: 47
+        });
+        try {
+            config.cfg_GlobalMode = false;
+            config.stageFollowField("WallpaperEngineAccount", "unsaved-account-draft");
+            config.stageWindowPauseMode(3);
+            const result = config.applyWallpaperImmediately({
+                path: "/tmp/browser-picked", file: "selected.pkg", type: "scene", workshopid: "765"
+            });
+
+            verify(result.applied, result.message || "Immediate Apply returned no success");
+            compare(host.applyCount, 1);
+            compare(host.appliedSnapshot.WallpaperSource, "/tmp/browser-picked/selected.pkg+scene");
+            compare(host.appliedSnapshot.WallpaperWorkShopId, "765");
+            compare(host.appliedSnapshot.FollowWallpaperEngine, false);
+            compare(host.wallpaperConfiguration.WallpaperSource, "/tmp/browser-picked/selected.pkg+scene");
+            compare(fakeMap.value("WallpaperSource"), undefined); // Host map is not the root map.
+            compare(sharedGlobalConfig.get("WallpaperSource", ""), "/tmp/browser-picked/selected.pkg+scene");
+            compare(sharedGlobalConfig.get("WallpaperWorkShopId", ""), "765");
+            compare(config.cfg_GlobalMode, false);
+            compare(config.cfg_Fps, 47);
+            compare(config.draftWindowPauseMode, 3);
+            compare(config.followEditorValues.WallpaperEngineAccount, "unsaved-account-draft");
+            compare(config.followEditorValues.FollowWallpaperEngine, false);
+            compare(config.initialWallpaperSource, "/tmp/browser-picked/selected.pkg+scene");
+            compare(config.initialWallpaperWorkShopId, "765");
+        } finally {
+            config.destroy();
+            host.destroy();
+        }
+    }
+
+    function test_immediateActivationUsesLiveLocalModeAndUnavailableHostIsNoOp() {
+        sharedGlobalConfig.enabled = false;
+        sharedGlobalConfig.setBatch({WallpaperSource: "shared-keep", WallpaperWorkShopId: "keep-id"});
+        const host = createTemporaryObject(activationHostComponent, testCase);
+        verify(host && host.wallpaperConfiguration);
+        let config = createActualConfig({
+            configDialog: host,
+            cfg_GlobalMode: true, // Pending checkbox differs from live local mode.
+            cfg_WallpaperSource: "draft-old",
+            cfg_WallpaperWorkShopId: "draft-id"
+        });
+        try {
+            config.cfg_GlobalMode = true;
+            const result = config.applyWallpaperImmediately({
+                path: "/tmp/local-picked", file: "local.pkg", type: "scene", workshopid: "900"
+            });
+            verify(result.applied, result.message || "Immediate Apply returned no success");
+            compare(host.applyCount, 1);
+            compare(host.wallpaperConfiguration.WallpaperSource, "/tmp/local-picked/local.pkg+scene");
+            compare(sharedGlobalConfig.get("WallpaperSource", ""), "shared-keep");
+            compare(sharedGlobalConfig.get("WallpaperWorkShopId", ""), "keep-id");
+        } finally {
+            config.destroy();
+            host.destroy();
+        }
+
+        sharedGlobalConfig.enabled = true;
+        const unavailable = createActualConfig({
+            configDialog: null, cfg_GlobalMode: false,
+            cfg_WallpaperSource: "draft-before", cfg_WallpaperWorkShopId: "draft-before-id"
+        });
+        try {
+            const beforeSource = sharedGlobalConfig.get("WallpaperSource", "");
+            const beforeId = sharedGlobalConfig.get("WallpaperWorkShopId", "");
+            const result = unavailable.applyWallpaperImmediately({
+                path: "/tmp/no-host", file: "no.pkg", type: "scene", workshopid: "901"
+            });
+            verify(!result.applied);
+            compare(sharedGlobalConfig.get("WallpaperSource", ""), beforeSource);
+            compare(sharedGlobalConfig.get("WallpaperWorkShopId", ""), beforeId);
+            compare(unavailable.cfg_WallpaperSource, "draft-before");
+            compare(unavailable.cfg_WallpaperWorkShopId, "draft-before-id");
+        } finally {
+            unavailable.destroy();
+        }
     }
 
     function test_windowPolicyDraftUsesSharedValuesAndWaitsForApply() {

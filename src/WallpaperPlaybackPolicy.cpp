@@ -22,7 +22,7 @@ Resolution resolve(Override desired, const Conditions &conditions)
     if (conditions.gameMode) {
         result.pauseReasons.append(Reason::GameMode);
     }
-    if (conditions.fullscreenApp) {
+    if (conditions.fullscreenApp && desired != Override::PlayDespiteWindows) {
         result.pauseReasons.append(Reason::FullscreenApp);
     }
     if (conditions.windowCoverage && desired != Override::PlayDespiteWindows) {
@@ -34,8 +34,11 @@ Resolution resolve(Override desired, const Conditions &conditions)
     const bool automaticPause = conditions.battery || conditions.gameMode;
     const bool windowPause = conditions.windowCoverage && desired == Override::Automatic;
 
+    const bool fullscreenPause = conditions.fullscreenApp
+        && desired != Override::PlayDespiteWindows;
+
     result.effective = hardPause || manualPause || automaticPause || windowPause
-            || conditions.fullscreenApp
+            || fullscreenPause
         ? EffectivePlayback::Paused
         : EffectivePlayback::Playing;
     return result;

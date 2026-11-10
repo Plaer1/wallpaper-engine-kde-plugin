@@ -43,6 +43,7 @@ TestCase {
     property var lastManual: null
     property var lastBrowse: null
     property var lastFollow: null
+    property var lastBrowserFilters: null
     property var pageUnderTest: null
 
     signal rescanSteam()
@@ -53,6 +54,8 @@ TestCase {
         QtObject {
             id: fakeModel
             property var browseScope: null
+            property var browserFilters: ({query: "", includedTags: [], excludedTags: [], sourceKind: ""})
+            property var browserTagCatalog: ["Nature", "Retro"]
             property int countNoFilter: 0
             property ListModel model: ListModel {}
             signal modelStartSync()
@@ -66,9 +69,11 @@ TestCase {
             width: 1200
             height: 800
             wallpaperListModel: testCase.wpListModel
+            browserTagCatalog: testCase.wpListModel.browserTagCatalog
             onManualWallpaperSelected: wallpaper => testCase.lastManual = wallpaper
             onBrowseScopeSelected: scope => testCase.lastBrowse = scope
             onFollowSourceSelected: binding => testCase.lastFollow = binding
+            onBrowserFiltersSelected: filters => testCase.lastBrowserFilters = filters
         }
     }
     Component { id: spyComponent; SignalSpy {} }
@@ -83,6 +88,7 @@ TestCase {
         lastManual = null;
         lastBrowse = null;
         lastFollow = null;
+        lastBrowserFilters = null;
     }
 
     function cleanup() {
@@ -136,10 +142,110 @@ TestCase {
         settings.clicked();
         compare(page.settingsExpanded, true);
         verify(panel.visible);
+        page.accountScopeExpanded = true;
         verify(findChild(page, "browseAccountPicker").visible);
         verify(findChild(page, "followSourcePicker").visible);
         verify(findChild(page, "libraryCombo"));
         verify(findChild(page, "singleLibrary"));
+    }
+
+    function test_filterSidebarAndInspectorCollapseResizeAndRemainReachableWhenNarrow() {
+        const page = createPage({width: 1200, followEnabled: true});
+        const sidebar = findChild(page, "browserFilterSidebar");
+        const browse = findChild(page, "wallpaperBrowseView");
+        const inspector = findChild(page, "wallpaperDetailsView");
+        const grid = findChild(page, "wallpaperGridLoader");
+        const filterToggle = findChild(page, "toggleBrowserFiltersButton");
+        const detailsToggle = findChild(page, "toggleWallpaperDetailsButton");
+        verify(sidebar && browse && inspector && grid && filterToggle && detailsToggle);
+        verify(sidebar.visible && inspector.visible);
+        page.inspectorPreferredWidth = 350;
+        tryCompare(inspector, "width", 350);
+        const centerWidthWithSidebars = browse.width;
+
+        page.selectWallpaper({workshopid: "77", title: "Pending follow selection",
+            path: "/tmp/project", file: "scene.pkg", type: "scene"});
+        compare(page.pendingManualSelection.title, "Pending follow selection");
+        filterToggle.clicked();
+        tryCompare(sidebar, "visible", false);
+        tryVerify(() => browse.width > centerWidthWithSidebars);
+        detailsToggle.clicked();
+        tryCompare(inspector, "visible", false);
+        tryVerify(() => browse.width > centerWidthWithSidebars);
+
+        page.width = 720;
+        tryCompare(page, "narrowLayout", true);
+        verify(browse.visible);
+        verify(!sidebar.visible && !inspector.visible);
+        filterToggle.clicked();
+        tryCompare(sidebar, "visible", true);
+        verify(!browse.visible);
+        findChild(sidebar, "backFromFiltersButton").clicked();
+        compare(page.filtersView, false);
+        verify(browse.visible);
+        findChild(browse, "showDetailsButton").clicked();
+        compare(page.detailsView, true);
+        verify(inspector.visible);
+        compare(page.pendingManualSelection.title, "Pending follow selection");
+    }
+
+    function test_richFiltersAndLegacyExclusionsAreVisibleAndResettable() {
+        const page = createPage({width: 1200});
+        const queryField = findChild(page, "browserQueryField");
+        verify(queryField);
+        verify(findChild(page, "browserSourceKindCombo"));
+        const tagChoice = findChild(page, "browserTagChoice");
+        verify(tagChoice);
+        compare(page.browserTagCatalog, ["Nature", "Retro"]);
+        compare(tagChoice.count, 2);
+
+        queryField.forceActiveFocus();
+        for (const key of [Qt.Key_C, Qt.Key_O, Qt.Key_N, Qt.Key_C, Qt.Key_H,
+                           Qt.Key_Space, Qt.Key_S, Qt.Key_T, Qt.Key_R, Qt.Key_E, Qt.Key_E, Qt.Key_T])
+            keyClick(key);
+        wait(240); // Debounced raw query retains spaces and case in the editor draft.
+        compare(page._activeBrowserFilters.query, "conch street");
+        compare(queryField.text, "conch street");
+        page.updateBrowserFilters("sourceKind", "workshop");
+        page.updateBrowserTagList("includedTags", "Nature", true);
+        page.updateBrowserTagList("excludedTags", "Retro", true);
+        compare(lastBrowserFilters, {
+            query: "conch street", includedTags: ["Nature"],
+            excludedTags: ["Retro"], sourceKind: "workshop"
+        });
+        compare(wpListModel.browserFilters.excludedTags, ["Retro"]);
+
+        const legacyValues = page.legacyFilterValues.slice();
+        legacyValues[10] = 0; // Legacy GENRE exclusion is surfaced as an active checkbox.
+        cfg_FilterStr = legacyValues.join("");
+        const excludeAbstract = findChild(page, "legacyBrowserFilter-10");
+        verify(excludeAbstract && excludeAbstract.checked);
+        excludeAbstract.checked = false;
+        verify(!excludeAbstract.checked);
+
+        findChild(page, "resetBrowserFiltersButton").clicked();
+        compare(page._activeBrowserFilters.query, "");
+        compare(page._activeBrowserFilters.includedTags, []);
+        compare(page._activeBrowserFilters.excludedTags, []);
+        compare(page._activeBrowserFilters.sourceKind, "");
+        compare(wpListModel.browseScope.mode, "allDownloaded");
+        verify(page.legacyFilterValues[10] !== 0);
+    }
+
+    function test_doubleClickActivationCallsInjectedHostExactlyOnce() {
+        const page = createPage();
+        let calls = 0;
+        let activated = null;
+        page.immediateApplyHandler = wallpaper => {
+            calls++;
+            activated = wallpaper;
+            return {applied: true};
+        };
+        const selected = {path: "/tmp/selected", file: "scene.pkg", type: "scene", workshopid: "42"};
+        verify(page.activateWallpaper(selected));
+        compare(calls, 1);
+        compare(activated.workshopid, "42");
+        compare(page.activationStatus, "Wallpaper applied. Other edits are still waiting for Apply.");
     }
 
     function test_browseAndFollowSelectionsAreIndependentWhileFollowing() {
@@ -152,6 +258,7 @@ TestCase {
             ],
             useFollowSourcePicker: true
         });
+        page.accountScopeExpanded = true;
         page.settingsExpanded = true;
         const browse = findChild(page, "browseAccountPicker");
         const follow = findChild(page, "followSourcePicker");
@@ -279,8 +386,11 @@ TestCase {
 
         page.width = 1200;
         scrollBar.width = 80; // enlarged scale/style scrollbar allowance
+        tryCompare(page, "narrowLayout", false);
+        compare(details.visible, true);
+        verify(!showDetails.visible);
+        page.width = 1039;
         tryCompare(page, "narrowLayout", true);
-        compare(details.visible, false);
         verify(showDetails.visible);
         showDetails.clicked();
         verify(details.visible);

@@ -5,8 +5,8 @@ Version: 0
 Release: %(date -u +%%Y%%m%%d%%H%%M)%{?dist}
 Summary: A KDE wallpaper plugin integrating Wallpaper Engine (Plasma 6)
 
-License: GPL-2.0-only
-URL:     https://github.com/RainyPixel/wallpaper-engine-kde-plugin
+License: GPL-2.0-or-later
+URL:     https://github.com/Plaer1/wallpaper-engine-kde-plugin
 
 # Built from a live git checkout.
 

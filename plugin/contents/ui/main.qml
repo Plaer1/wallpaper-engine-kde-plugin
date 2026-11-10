@@ -159,6 +159,15 @@ Rectangle {
     property string source: followDisplay.source
 
     property string filterStr: effCfg("FilterStr", wallpaper.configuration.FilterStr)
+    property var browserFiltersBinding: {
+        const raw = effCfg("BrowserFilters", wallpaper.configuration.BrowserFilters);
+        let value = raw;
+        if (typeof raw === "string") {
+            try { value = raw.trim() ? JSON.parse(raw) : {}; }
+            catch (error) { value = {}; }
+        }
+        return Common.normalizeBrowserFilters(value);
+    }
 
     property int    videoBackend: wallpaper.configuration.VideoBackend
     property int    switchTimer: effCfg("SwitchTimer", wallpaper.configuration.SwitchTimer)
@@ -562,6 +571,7 @@ Rectangle {
         globalConfigPath: background.steamDetect.globalConfig
             || Common.getGlobalConfigPath(background.steamlibrary)
         filterStr: background.filterStr
+        browserFilters: background.browserFiltersBinding
         initItemOp: (item) => {
             if(!background.customConf) return;
             item.favor = background.customConf.favor.has(item.workshopid);

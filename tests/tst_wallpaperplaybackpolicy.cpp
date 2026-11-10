@@ -34,7 +34,7 @@ private slots:
                 EffectivePlayback expected = EffectivePlayback::Playing;
                 if (conditions.sleep || conditions.inactiveSession || desired == Override::Paused
                     || conditions.battery || conditions.gameMode
-                    || conditions.fullscreenApp
+                    || (conditions.fullscreenApp && desired != Override::PlayDespiteWindows)
                     || (conditions.windowCoverage && desired == Override::Automatic)) {
                     expected = EffectivePlayback::Paused;
                 }
@@ -69,10 +69,11 @@ private slots:
         QCOMPARE(result.pauseReasons, expected);
     }
 
-    void playDespiteWindowsOnlyOverridesOrdinaryWindowReason()
+    void playDespiteWindowsOverridesWindowAndFullscreenOnly()
     {
         Conditions conditions;
         conditions.windowCoverage = true;
+        conditions.fullscreenApp = true;
         auto result = resolve(Override::PlayDespiteWindows, conditions);
         QCOMPARE(result.effective, EffectivePlayback::Playing);
         QVERIFY(result.pauseReasons.isEmpty());
@@ -81,6 +82,24 @@ private slots:
         result = resolve(Override::PlayDespiteWindows, conditions);
         QCOMPARE(result.effective, EffectivePlayback::Paused);
         QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::Battery});
+
+        conditions.battery = false;
+        conditions.gameMode = true;
+        result = resolve(Override::PlayDespiteWindows, conditions);
+        QCOMPARE(result.effective, EffectivePlayback::Paused);
+        QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::GameMode});
+
+        conditions.gameMode = false;
+        conditions.sleep = true;
+        result = resolve(Override::PlayDespiteWindows, conditions);
+        QCOMPARE(result.effective, EffectivePlayback::Paused);
+        QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::Sleep});
+
+        conditions.sleep = false;
+        conditions.inactiveSession = true;
+        result = resolve(Override::PlayDespiteWindows, conditions);
+        QCOMPARE(result.effective, EffectivePlayback::Paused);
+        QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::InactiveSession});
     }
 
     void fullscreenIsGlobalEvenWhenOrdinaryCoverageIsOff()
@@ -93,8 +112,8 @@ private slots:
         QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::FullscreenApp});
 
         result = resolve(Override::PlayDespiteWindows, conditions);
-        QCOMPARE(result.effective, EffectivePlayback::Paused);
-        QCOMPARE(result.pauseReasons, QVector<Reason>{Reason::FullscreenApp});
+        QCOMPARE(result.effective, EffectivePlayback::Playing);
+        QVERIFY(result.pauseReasons.isEmpty());
 
         result = resolve(Override::Paused, conditions);
         QCOMPARE(result.effective, EffectivePlayback::Paused);
